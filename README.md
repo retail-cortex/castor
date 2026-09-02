@@ -1,8 +1,8 @@
-# Castor: Enterprise Project Pattern Registry
+# Castor: Enterprise AI Agent Skills Registry and Distribution Platform
 
 [![Coverage](coverage.svg)](https://github.com/retail-cortex/castor)
 
-**Castor** is an enterprise-grade AI Agent Skills registry and lifecycle tooling platform built for the **Google Agent Development Kit (ADK)** and autonomous multi-agent ecosystems. While extending the foundational [agentskills.io](https://agentskills.io/specification) standard, Castor implements strict enterprise governance, multi-modal vector search, and dynamic JIT tool retrieval.
+**Castor** is an enterprise-grade AI Agent Skills registry, package manager, and lifecycle tooling platform built for the **Google Agent Development Kit (ADK)** and autonomous multi-agent ecosystems. Extending and superseding the [agentskills.io](https://agentskills.io/specification) standard, Castor delivers a central backend registry service (`castor-server`), a standalone CLI package manager (`cstr`), polyglot client SDKs across Go, Python, and Java, multi-modal vector search (`pgvector`), cryptographic manifest locking (`.manifest.lock`), and dynamic Just-in-Time (JIT) tool retrieval.
 
 ---
 
