@@ -18,6 +18,7 @@ This specification extends and supersedes baseline specifications (such as `agen
 6. **Zero-I/O Pre-compiled Manifests (`skills_manifest.json`)**: In-memory skill registration for low-latency agent startup.
 7. **Just-in-Time (JIT) Semantic Discovery**: Semantic retrieval mapping user intent to specific skills, eliminating the need to statically load entire registries.
 8. **Human-in-the-Loop (HITL) Intervention Gates**: Explicit compliance validation checkpoints designed to isolate read vs. write workloads for AHI safety.
+9. **Repeatable Scenario Verification Framework**: Automated test scenario suites located in `scenarios/*.md` verifying agent execution correctness through tool assertions (`expected_skills`) and token-frequency cosine similarity thresholds.
 
 ---
 
@@ -32,6 +33,8 @@ A compliant skill MUST be structured as a self-contained directory containing a 
 │   └── *.md
 ├── examples/                # Code snippets, usage patterns & sample payloads (Required)
 │   └── *
+├── scenarios/               # Repeatable agent verification scenarios (Optional)
+│   └── *.md
 ├── scripts/                 # Optional setup or execution scripts
 └── resources/               # Optional static assets or schema definitions
 ```
@@ -168,5 +171,53 @@ All REST list and search endpoints (`/api/v1/skills`) MUST enforce strict reques
    - `X-Page-Size`: Effective bounded page size.
    - `X-Total-Pages`: Total calculated page count ($\lceil \text{Total} / \text{PageSize} \rceil$).
 3. **Optional Envelope Parameter**: If `?envelope=true` is set, the server MUST wrap items in `{ "items": [...], "total_count": N, "page": P, "page_size": S, "total_pages": T }`.
+
+---
+
+## 9. Repeatable Skill Scenario Verification Framework
+
+Skills may include a `scenarios/` directory containing repeatable scenario test definitions (`scenarios/*.md`) used by developers, evaluation suites, and automated test runners (`cstr test`) to verify skill execution fidelity and tool grounding.
+
+### 9.1 Scenario File Anatomy & YAML Frontmatter
+
+Each scenario is a Markdown file with a YAML frontmatter block defining execution expectations, followed by a reference markdown body defining the target `outcome`:
+
+```markdown
+---
+prompt: "How do I build a Bazel module hermetically using Bzlmod?"
+executes: true
+expected_skills:
+  - bazel
+threshold: 0.70
+metadata:
+  category: "build"
+---
+To build a Bazel module hermetically using Bzlmod:
+1. Configure MODULE.bazel and commit MODULE.bazel.lock (CWE-829).
+2. Execute `bazel build //...`.
+```
+
+#### Frontmatter Schema
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `prompt` | `string` | **Yes** | The input prompt provided to the agent under test. |
+| `executes` | `boolean` | No | If `true`, asserts that all `expected_skills` are invoked during execution. (Default: `false`). |
+| `expected_skills` | `list[string]` | No | List of tool / skill names expected to be invoked. (Alias: `skills_applied`). |
+| `threshold` | `float` | No | Minimum cosine similarity threshold ($0.0 \le \text{threshold} \le 1.0$). (Default: `0.70`). |
+| `metadata` | `map[string, string]` | No | Arbitrary key-value metadata for tagging, difficulty, or categorization. |
+
+### 9.2 Verification & Scoring Mechanics
+
+1. **Tool Invocation Assertion**:
+   - If `executes: true`, the test runner inspects the agent's actual tool call history.
+   - Every entry in `expected_skills` MUST be present in the recorded tool calls. If any tool is missing, the test fails immediately.
+2. **Output Similarity Scoring**:
+   - The agent's generated response text is compared against the scenario's reference `outcome` body.
+   - Text is normalized (tokenized by `[a-zA-Z0-9_]+`, lowercased) into word-frequency vectors $\vec{u}$ and $\vec{v}$.
+   - Cosine similarity is computed:
+     $$\text{sim}(\vec{u}, \vec{v}) = \frac{\vec{u} \cdot \vec{v}}{\|\vec{u}\|_2 \|\vec{v}\|_2}$$
+   - If $\text{sim}(\vec{u}, \vec{v}) < \text{threshold}$, the test fails.
+
 
 

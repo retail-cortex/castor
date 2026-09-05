@@ -212,6 +212,43 @@ func main() {
 
 ---
 
+## 5. Repeatable Skill Scenario Verification
+
+The Go client parses and evaluates scenarios defined under `scenarios/*.md`:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/retail-cortex/castor/clients/go/pkg/castor_client"
+)
+
+func main() {
+	skill, err := castor_client.LoadSkillFromDir("./skills/bazel-modules")
+	if err != nil {
+		log.Fatalf("Failed loading skill: %v", err)
+	}
+
+	for name, scenario := range skill.Scenarios {
+		// Mock or real agent output & tools executed
+		agentOutput := "To build a Bazel module hermetically: bazel build //..."
+		toolsUsed := []string{"bazel"}
+
+		res := castor_client.EvaluateScenario(scenario, agentOutput, toolsUsed)
+		if res.Passed {
+			fmt.Printf("[PASS] Scenario '%s': similarity=%.2f\n", name, res.SimilarityScore)
+		} else {
+			fmt.Printf("[FAIL] Scenario '%s': similarity=%.2f, errors=%v\n", name, res.SimilarityScore, res.Errors)
+		}
+	}
+}
+```
+
+---
+
 ## Best Practices for Go Services
 
 1. **Distroless Packaging**: Statically link Go binaries (`CGO_ENABLED=0`) with embedded skill manifests for deployment in minimal `scratch` or `distroless` container images.

@@ -40,6 +40,7 @@ graph TD
 | **`config`** | `cstr config set <key> <value>` | Sets connection configuration in `~/.castor/.env.toml`. |
 | **`config`** | `cstr config show` | Displays active CLI configuration and masked credentials. |
 | **`validate`**| `cstr validate <path> [-r] [--json]` | Runs 5-point SDLC quality audit (Frontmatter, Structure, CWE, 429, Links). |
+| **`test`** | `cstr test <path> [-r] [--json]` | Executes repeatable verification scenarios against skill definitions. |
 | **`verify`** | `cstr verify [-d <dir>] [--json]` | Verifies cryptographic SHA-256 integrity against `.manifest.lock`. |
 | **`compile`** | `cstr compile [-d <dir>] [-o <file>]` | Compiles skills into a zero-I/O `skills_manifest.json` bundle. |
 | **`init`** | `cstr init <name> [-d <dir>]` | Scaffolds a new skill directory conforming to SDLC specifications. |

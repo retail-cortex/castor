@@ -86,3 +86,46 @@ cstr validate -r ./skills --json
 * **`0`**: All skills passed 100% compliance checks.
 * **`1`**: One or more validation violations detected (blocks CI/CD pipelines and `cstr register`).
 
+---
+
+## 4. Repeatable Scenario Testing (`cstr test`)
+
+Execute automated test scenarios from the skill's `scenarios/` directory. Evaluates agent prompts, asserts tool execution requirements (`expected_skills`), and computes cosine similarity against target reference outcomes:
+
+```bash
+# Test scenarios for a specific skill
+cstr test ./skills/my-custom-skill
+
+# Recursively test all scenarios across skills in directory
+cstr test -r ./skills
+
+# Machine-readable JSON output for automated CI gating
+cstr test -r ./skills --json
+```
+
+### Sample Scenario File (`scenarios/build_check.md`)
+```markdown
+---
+prompt: "How do I build a Bazel module hermetically using Bzlmod?"
+executes: true
+expected_skills:
+  - bazel
+threshold: 0.70
+---
+To build a Bazel module hermetically using Bzlmod:
+1. Ensure `MODULE.bazel` is configured and `MODULE.bazel.lock` is committed.
+2. Execute `bazel build //...`.
+```
+
+### Test Output Format
+```
+Castor Skill Scenario Test Report
+======================================================================
+Target Path: ./skills/my-custom-skill (Recursive: false)
+Skills Tested: 1 | Total Scenarios: 1 | Failed Scenarios: 0
+
+Skill: my-custom-skill (/path/to/skills/my-custom-skill)
+  [PASS] build_check                    | Similarity: 0.94 (Threshold: 0.70) | Tools: [bazel]
+```
+
+

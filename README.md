@@ -23,6 +23,7 @@
 * **Bounded REST Pagination & Protection**: Central `/api/v1/skills` endpoint enforces strict page size bounding ($1 \le \text{page\_size} \le 25$, default $5$) with standard `X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Total-Pages` response headers.
 * **Cryptographic Manifest Locking (`.manifest.lock`)**: Enforces deterministic SHA-256 integrity verification across installed skills.
 * **Human-in-the-Loop (HITL) Policy Gates**: Tiered intervention gates and static compliance validation ensuring safe Agent-Human Interaction (AHI).
+* **Repeatable Skill Scenario Verification Framework**: Declarative test fixtures in `scenarios/*.md` evaluating agent prompt responses against reference outcomes via token-frequency cosine similarity thresholds and tool invocation assertions (`expected_skills`).
 
 ```mermaid
 graph TD
@@ -74,6 +75,9 @@ bazel run //cmd/cstr -- add maven://com.retailcortex.castor:skills-java:1.0.0
 
 # 5-Point SDLC Quality Audit
 bazel run //cmd/cstr -- validate -r ./skills --json
+
+# Run Repeatable Skill Scenario Verification Tests
+bazel run //cmd/cstr -- test ./examples/skills/bazel/bazel-modules
 
 # Verify cryptographic lockfile integrity
 bazel run //cmd/cstr -- verify -d .skills
@@ -136,6 +140,7 @@ bazel test //...
   suggested_skills = registry.suggest_skills(prompt="render canvas image", max_skills=3)
   ```
 * **PEP 517 Build Backend**: Declare `build-backend = "castor_client.build_meta"` in `pyproject.toml` to automatically download and validate skills during `uv build` or `pip install`.
+* **Scenario Verification**: Run automated verification tests against agent outputs with `run_skill_scenarios(skill, agent_runner)` asserting tool execution and similarity thresholds.
 
 ### Go SDK (`castor_client`)
 * **JIT Dynamic Suggestions**:
@@ -145,6 +150,7 @@ bazel test //...
   registry, _ := castor_client.NewSkillRegistry("", nil, nil, "")
   suggested := registry.SuggestSkills("render canvas image", 3, "http://localhost:8000")
   ```
+* **Scenario Verification**: Evaluate agent output against skill scenario definitions using `castor_client.EvaluateScenario(scenario, agentOutput, toolsUsed)`.
 * **Build Directives**: Use `//go:generate cstr compile -d ./skills` and `//go:embed skills_manifest.json` for zero-I/O static binary embeds.
 
 ### Java SDK (`com.retailcortex.castor`)
@@ -156,6 +162,7 @@ bazel test //...
   CastorClient client = new CastorClient();
   var suggested = client.suggestSkills("render canvas image", 3);
   ```
+* **Scenario Verification**: Access loaded scenarios via `skill.getScenarios()` and evaluate outputs with `SkillLoader.evaluateScenario(scenario, agentOutput, toolsUsed)`.
 * **Maven Plugin**: Include `castor-client` in `pom.xml` during `generate-resources` to package `skills_manifest.json` into executable JARs.
 
 ---

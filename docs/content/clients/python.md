@@ -136,6 +136,38 @@ py_binary(
 
 ---
 
+## 4. Repeatable Skill Scenario Verification
+
+The Python client parses and executes scenarios declared in a skill's `scenarios/` directory:
+
+```python
+from castor_client import load_skill_from_dir, run_skill_scenarios, evaluate_scenario
+
+# Load skill with automatic scenario discovery
+skill = load_skill_from_dir("./skills/my-skill")
+
+# Inspect parsed scenarios
+for name, scenario in skill.scenarios.items():
+    print(f"Scenario: {name}")
+    print(f"  Prompt: {scenario.prompt}")
+    print(f"  Expected Tools: {scenario.expected_skills}")
+    print(f"  Threshold: {scenario.threshold}")
+
+# Execute all scenarios against an agent runner callback
+def agent_runner(prompt: str) -> tuple[str, list[str]]:
+    # Run agent prompt and capture response text + tools executed
+    agent_output = "Target built successfully."
+    tools_used = ["bazel"]
+    return agent_output, tools_used
+
+results = run_skill_scenarios(skill, agent_runner)
+for res in results:
+    status = "PASS" if res.passed else "FAIL"
+    print(f"[{status}] {res.scenario_name} (Similarity: {res.similarity_score:.2f})")
+```
+
+---
+
 ## Recommended Python Standards
 
 1. **Virtual Environment Isolation**: Always manage dependencies using `uv` and run scripts via `uv run python main.py`. Never run global `pip install`.

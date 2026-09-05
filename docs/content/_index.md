@@ -7,6 +7,7 @@ Welcome to the **Castor** documentation. Castor is an enterprise-grade AI Agent 
 - **Compiled References & Schema Strictness**: Strips verbose natural language into cryptographically hashed, strict JSON Schema constraints (`additionalProperties: false`).
 - **Cryptographic Manifest Locking (`.manifest.lock`)**: Enforces immutable execution parameters preventing prompt-injected payload tampering.
 - **Human-in-the-Loop (HITL) Architecture**: Implements tiered intervention gates and explicit compliance validation components to guarantee Agent-Human Interaction (AHI) safety.
+- **Repeatable Skill Scenario Verification Framework**: Standardized test fixtures (`scenarios/*.md`) evaluating agent execution against expected tools and cosine similarity thresholds (`cstr test`).
 
 ---
 

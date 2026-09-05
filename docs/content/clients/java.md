@@ -266,6 +266,43 @@ public class ADKAgentRunner {
 
 ---
 
+## 7. Repeatable Skill Scenario Verification
+
+The Java SDK loads and evaluates test scenarios defined under `scenarios/*.md`:
+
+```java
+package com.company.agent;
+
+import com.retailcortex.castor.loader.ScenarioEvaluationResult;
+import com.retailcortex.castor.loader.SkillDefinition;
+import com.retailcortex.castor.loader.SkillLoader;
+
+import java.nio.file.Path;
+import java.util.List;
+
+public class SkillScenarioRunner {
+    public static void main(String[] args) {
+        SkillDefinition skill = SkillLoader.loadSkillFromDir(Path.of("./skills/bazel-modules"));
+        if (skill == null) return;
+
+        skill.getScenarios().forEach((name, scenario) -> {
+            // Run prompt through agent and capture output and invoked tools
+            String agentOutput = "To build a Bazel module hermetically: bazel build //...";
+            List<String> toolsUsed = List.of("bazel");
+
+            ScenarioEvaluationResult result = SkillLoader.evaluateScenario(scenario, agentOutput, toolsUsed);
+            if (result.isPassed()) {
+                System.out.printf("[PASS] %s (Similarity: %.2f)%n", name, result.getSimilarityScore());
+            } else {
+                System.err.printf("[FAIL] %s (Similarity: %.2f, Errors: %s)%n", name, result.getSimilarityScore(), result.getErrors());
+            }
+        });
+    }
+}
+```
+
+---
+
 ## Best Practices for Enterprise Java Services
 
 1. **Logging Compliance**: `SkillLoader` strictly utilizes `SLF4J` for all diagnostic logging. Never use `e.printStackTrace()` or stdout for error logging.
