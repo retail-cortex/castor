@@ -1,6 +1,15 @@
 # Castor: Enterprise AI Agent Skills Registry and Distribution Platform
 
+[![Bazel CI](https://github.com/retail-cortex/castor/actions/workflows/bazel-ci.yml/badge.svg)](https://github.com/retail-cortex/castor/actions/workflows/bazel-ci.yml)
+[![Documentation](https://github.com/retail-cortex/castor/actions/workflows/deploy-docs.yml/badge.svg)](https://retail-cortex.github.io/castor/)
+[![Release Pipeline](https://github.com/retail-cortex/castor/actions/workflows/release.yml/badge.svg)](https://github.com/retail-cortex/castor/actions/workflows/release.yml)
 [![Coverage](coverage.svg)](https://github.com/retail-cortex/castor)
+[![GitHub Release](https://img.shields.io/github/v/release/retail-cortex/castor?include_prereleases&logo=github&color=blue)](https://github.com/retail-cortex/castor/releases)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Bazel](https://img.shields.io/badge/Bazel-8%20%2F%20Bzlmod-43A047?logo=bazel&logoColor=white)](https://bazel.build)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)](https://adoptium.net)
 
 **Castor** is an enterprise-grade AI Agent Skills registry, package manager, and lifecycle tooling platform built for the **Google Agent Development Kit (ADK)** and autonomous multi-agent ecosystems. Extending and superseding the [agentskills.io](https://agentskills.io/specification) standard, Castor delivers a central backend registry service (`castor-server`), a standalone CLI package manager (`cstr`), polyglot client SDKs across Go, Python, and Java, multi-modal vector search (`pgvector`), cryptographic manifest locking (`.manifest.lock`), and dynamic Just-in-Time (JIT) tool retrieval.
 
@@ -90,7 +99,7 @@ uv run python examples/python/polyglot/main.py --target-dir ./scratch/my-app
 
 ### 5. Execute Full Test Suite
 ```bash
-# All 26 Bazel test targets across Go, Python, Java, and MCP
+# All 31 Bazel test targets across Go, Python, Java, and MCP
 bazel test //...
 ```
 
@@ -108,6 +117,7 @@ bazel test //...
 | **`config`** | `cstr config set <server\|api_key\|domain\|org> <val>` | Configures local CLI connection settings in `~/.castor/.env.toml`. |
 | **`config`** | `cstr config show` | Displays active CLI configuration and masked credentials. |
 | **`validate`**| `cstr validate <path> [-r] [--json]` | Executes 5-point SDLC compliance audit (Frontmatter, Structure, CWE rules, 429 retries, File links). |
+| **`test`** | `cstr test <path> [-r] [--json]` | Executes repeatable verification scenarios against skill definitions asserting expected tools and semantic output similarity. |
 | **`verify`** | `cstr verify [-d <dir>] [--json]` | Audits installed skill directory checksums against `.manifest.lock`. |
 | **`compile`** | `cstr compile [-d <dir>] [-o <manifest.json>]` | Generates pre-compiled JSON manifest for zero-I/O cold starts. |
 | **`init`** | `cstr init <name> [-d <dir>]` | Scaffolds a new skill directory conforming to all SDLC requirements. |
