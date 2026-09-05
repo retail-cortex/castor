@@ -34,8 +34,8 @@ func NewAppsService(repo ...data.AppRepository) *AppsService {
 	return &AppsService{repo: r}
 }
 
-func (s *AppsService) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, baseURL string) (*model.AppRegisterResponse, error) {
-	return s.repo.RegisterApp(db, req, baseURL)
+func (s *AppsService) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, baseURL string, profile ...*model.UserProfile) (*model.AppRegisterResponse, error) {
+	return s.repo.RegisterApp(db, req, baseURL, profile...)
 }
 
 func (s *AppsService) VerifyApp(db *gorm.DB, token string) (*model.AppVerifyResponse, error) {

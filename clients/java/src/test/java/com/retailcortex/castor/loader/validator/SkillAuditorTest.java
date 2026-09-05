@@ -102,4 +102,53 @@ class SkillAuditorTest {
         assertThat(summary.getPassedSkills()).isGreaterThanOrEqualTo(20);
         assertThat(summary.getFailedSkills()).isEqualTo(0);
     }
+
+    @Test
+    @DisplayName("Should validate scenario files during skill directory audit")
+    void testAuditScenarioFiles(@TempDir Path tempDir) throws IOException {
+        Path skillDir = tempDir.resolve("scenario-skill");
+        Files.createDirectories(skillDir.resolve("references"));
+        Files.createDirectories(skillDir.resolve("examples"));
+        Files.createDirectories(skillDir.resolve("scenarios"));
+
+        String skillMdContent = """
+                ---
+                name: scenario-skill
+                description: Valid enterprise skill with scenario.
+                license: Apache-2.0
+                ---
+                # Overview
+                CWE-200 security checkpoints and HTTP 429 rate limit backoff.
+                [doc](file:///path/to/doc.md).
+                """;
+
+        Files.writeString(skillDir.resolve("SKILL.md"), skillMdContent);
+        Files.writeString(skillDir.resolve("references/ref1.md"), "Ref");
+        Files.writeString(skillDir.resolve("examples/ex1.java"), "Ex");
+
+        // Invalid scenario: threshold > 1.0
+        Files.writeString(skillDir.resolve("scenarios/bad.md"), """
+                ---
+                prompt: "Test prompt"
+                threshold: 1.5
+                ---
+                Outcome
+                """);
+
+        SkillAuditResult result = SkillAuditor.auditSkillDirectory(skillDir);
+        assertThat(result.isPassed()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("threshold") && e.contains("between 0.0 and 1.0"));
+
+        // Fix scenario
+        Files.writeString(skillDir.resolve("scenarios/bad.md"), """
+                ---
+                prompt: "Test prompt"
+                threshold: 0.8
+                ---
+                Outcome
+                """);
+
+        SkillAuditResult fixedResult = SkillAuditor.auditSkillDirectory(skillDir);
+        assertThat(fixedResult.isPassed()).isTrue();
+    }
 }

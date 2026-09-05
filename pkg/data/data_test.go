@@ -17,6 +17,7 @@ package data_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/retail-cortex/castor/pkg/data"
 	"github.com/retail-cortex/castor/pkg/model"
@@ -358,4 +359,59 @@ func TestCosineSimilarity(t *testing.T) {
 
 	assert.Equal(t, 0.0, data.CosineSimilarity(nil, nil))
 	assert.Equal(t, 0.0, data.CosineSimilarity([]float64{1.0}, []float64{1.0, 2.0}))
+}
+
+func TestAppsRepository_OAuthRegistration(t *testing.T) {
+	setupTestDB(t)
+	db := data.GetDB()
+	repo := data.NewAppsRepository()
+
+	updatedAt := time.Now().Add(-24 * time.Hour).UTC().Truncate(time.Second)
+	profile := &model.UserProfile{
+		Sub:               "oauth2-sub-456",
+		Email:             "alice@corp.com",
+		EmailVerified:     true,
+		Name:              "Alice Johnson",
+		GivenName:         "Alice",
+		FamilyName:        "Johnson",
+		PreferredUsername: "alicej",
+		Picture:           "https://corp.com/avatars/alice.png",
+		UpdatedAt:         &updatedAt,
+	}
+
+	req := model.AppRegisterRequest{
+		AppName: "oauth-app",
+		Domain:  "corp.com",
+	}
+
+	res, err := repo.RegisterApp(db, req, "http://localhost:8000", profile)
+	require.NoError(t, err)
+	assert.NotEmpty(t, res.AppID)
+	assert.Equal(t, "alice@corp.com", res.Email)
+	assert.True(t, res.IsActive)
+	assert.Empty(t, res.VerificationURL)
+	require.NotNil(t, res.MemberProfile)
+	assert.Equal(t, "Alice Johnson", res.MemberProfile.Name)
+	assert.Equal(t, "alicej", res.MemberProfile.PreferredUsername)
+
+	// Verify key is immediately usable without calling VerifyApp
+	authCtx, err := repo.AuthenticateContext(db, res.APIKey)
+	require.NoError(t, err)
+	assert.Equal(t, res.AppID, authCtx.App.AppID)
+	assert.Equal(t, "alice@corp.com", authCtx.MemberEmail)
+	assert.Equal(t, model.RoleOwner, authCtx.Role)
+
+	// Verify AppMember record in DB captures all profile attributes
+	var member model.AppMember
+	err = db.Where("app_id = ? AND email = ?", res.AppID, "alice@corp.com").First(&member).Error
+	require.NoError(t, err)
+	assert.Equal(t, "Alice Johnson", member.Name)
+	assert.Equal(t, "Johnson", member.FamilyName)
+	assert.Equal(t, "Alice", member.GivenName)
+	assert.Equal(t, "alicej", member.PreferredUsername)
+	assert.Equal(t, "https://corp.com/avatars/alice.png", member.Picture)
+	assert.Equal(t, "oauth2-sub-456", member.OAuthSub)
+	require.NotNil(t, member.ProfileUpdatedAt)
+	assert.Equal(t, updatedAt.Unix(), member.ProfileUpdatedAt.Unix())
+	assert.Equal(t, "ACTIVE", member.Status)
 }

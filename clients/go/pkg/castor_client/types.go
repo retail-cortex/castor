@@ -97,41 +97,64 @@ type ResourceInterpretation struct {
 
 // ResourceRequirement represents a structured context asset required by a skill.
 type ResourceRequirement struct {
-	ID                 string                   `json:"id"`
-	Name               string                   `json:"name"`
-	Description        string                   `json:"description,omitempty"`
-	Category           ResourceCategory         `json:"category"`
-	MIMEType           string                   `json:"mime_type,omitempty"`
-	Storage            *ResourceStorageLocation `json:"storage,omitempty"`
-	InlineContent      string                   `json:"inline_content,omitempty"`
-	Interpretation     *ResourceInterpretation  `json:"interpretation,omitempty"`
+	ID                string                   `json:"id"`
+	Name              string                   `json:"name"`
+	Description       string                   `json:"description,omitempty"`
+	Category          ResourceCategory         `json:"category"`
+	MIMEType          string                   `json:"mime_type,omitempty"`
+	Storage           *ResourceStorageLocation `json:"storage,omitempty"`
+	InlineContent     string                   `json:"inline_content,omitempty"`
+	Interpretation    *ResourceInterpretation  `json:"interpretation,omitempty"`
 	AutoInjectContext bool                     `json:"auto_inject_context,omitempty"`
+}
+
+// ScenarioDefinition defines a behavioral test scenario for a skill.
+type ScenarioDefinition struct {
+	Name           string   `json:"name"`
+	Description    string   `json:"description,omitempty"`
+	Prompt         string   `json:"prompt"`
+	Executes       bool     `json:"executes"`
+	ExpectedSkills []string `json:"expected_skills"`
+	Threshold      float64  `json:"threshold"`
+	Outcome        string   `json:"outcome"`
+}
+
+// ScenarioEvaluationResult captures evaluation metrics of an agent against a scenario.
+type ScenarioEvaluationResult struct {
+	ScenarioName    string   `json:"scenario_name"`
+	Passed          bool     `json:"passed"`
+	SimilarityScore float64  `json:"similarity_score"`
+	Threshold       float64  `json:"threshold"`
+	ToolsExpected   []string `json:"tools_expected"`
+	ToolsApplied    []string `json:"tools_applied"`
+	Errors          []string `json:"errors"`
 }
 
 // SkillDefinition represents a loaded enterprise skill definition.
 type SkillDefinition struct {
-	Name             string                `json:"name"`
-	Description      string                `json:"description"`
-	Instructions     string                `json:"instructions"`
-	License          string                `json:"license,omitempty"`
-	Author           string                `json:"author,omitempty"`
-	Authors          []AuthorDetails       `json:"authors,omitempty"`
-	Version          string                `json:"version,omitempty"`
-	Compatibility    string                `json:"compatibility,omitempty"`
-	AllowedTools     string                `json:"allowed_tools,omitempty"`
-	ToolRequirements []ToolRequirement     `json:"tool_requirements,omitempty"`
-	Category         string                `json:"category,omitempty"`
-	Tags             []string              `json:"tags,omitempty"`
-	TriggerPhrases   []string              `json:"trigger_phrases,omitempty"`
-	ExecutionHints   *ExecutionHints       `json:"execution_hints,omitempty"`
-	Metadata         map[string]string     `json:"metadata"`
-	References       map[string]string     `json:"references"`
-	Examples         map[string]string     `json:"examples"`
-	Scripts          []ScriptDefinition    `json:"scripts,omitempty"`
-	Resources        []ResourceRequirement `json:"resources,omitempty"`
-	Path             string                `json:"path"`
-	SourceURI        string                `json:"source_uri,omitempty"`
-	SHA256Hash       string                `json:"sha256_hash,omitempty"`
+	Name             string                        `json:"name"`
+	Description      string                        `json:"description"`
+	Instructions     string                        `json:"instructions"`
+	License          string                        `json:"license,omitempty"`
+	Author           string                        `json:"author,omitempty"`
+	Authors          []AuthorDetails               `json:"authors,omitempty"`
+	Version          string                        `json:"version,omitempty"`
+	Compatibility    string                        `json:"compatibility,omitempty"`
+	AllowedTools     string                        `json:"allowed_tools,omitempty"`
+	ToolRequirements []ToolRequirement             `json:"tool_requirements,omitempty"`
+	Category         string                        `json:"category,omitempty"`
+	Tags             []string                      `json:"tags,omitempty"`
+	TriggerPhrases   []string                      `json:"trigger_phrases,omitempty"`
+	ExecutionHints   *ExecutionHints               `json:"execution_hints,omitempty"`
+	Metadata         map[string]string             `json:"metadata"`
+	References       map[string]string             `json:"references"`
+	Examples         map[string]string             `json:"examples"`
+	Scenarios        map[string]ScenarioDefinition `json:"scenarios,omitempty"`
+	Scripts          []ScriptDefinition            `json:"scripts,omitempty"`
+	Resources        []ResourceRequirement         `json:"resources,omitempty"`
+	Path             string                        `json:"path"`
+	SourceURI        string                        `json:"source_uri,omitempty"`
+	SHA256Hash       string                        `json:"sha256_hash,omitempty"`
 }
 
 // GetReferenceContent retrieves content of a reference file on demand.
@@ -148,6 +171,15 @@ func (s *SkillDefinition) GetExampleContent(exName string) string {
 		return s.Examples[exName]
 	}
 	return ""
+}
+
+// GetScenario retrieves a scenario definition by name.
+func (s *SkillDefinition) GetScenario(scName string) (ScenarioDefinition, bool) {
+	if s.Scenarios != nil {
+		sc, ok := s.Scenarios[scName]
+		return sc, ok
+	}
+	return ScenarioDefinition{}, false
 }
 
 // ToMap serializes skill definition to a dictionary format matching the Python implementation.
@@ -175,8 +207,17 @@ func (s *SkillDefinition) ToMap() map[string]any {
 	}
 
 	resources := s.Resources
-	if resources == nil {
-		resources = []ResourceRequirement{}
+	scenarios := make(map[string]any)
+	for k, v := range s.Scenarios {
+		scenarios[k] = map[string]any{
+			"name":            v.Name,
+			"description":     v.Description,
+			"prompt":          v.Prompt,
+			"executes":        v.Executes,
+			"expected_skills": v.ExpectedSkills,
+			"threshold":       v.Threshold,
+			"outcome":         v.Outcome,
+		}
 	}
 
 	return map[string]any{
@@ -197,6 +238,7 @@ func (s *SkillDefinition) ToMap() map[string]any {
 		"metadata":          meta,
 		"references":        refKeys,
 		"examples":          exKeys,
+		"scenarios":         scenarios,
 		"scripts":           scripts,
 		"resources":         resources,
 		"path":              s.Path,
@@ -217,4 +259,5 @@ type SkillSummary struct {
 	TriggerPhrases []string `json:"trigger_phrases,omitempty"`
 	ScriptCount    int      `json:"script_count,omitempty"`
 	ResourceCount  int      `json:"resource_count,omitempty"`
+	ScenarioCount  int      `json:"scenario_count,omitempty"`
 }

@@ -74,6 +74,7 @@ public class SkillRegistry {
                         s.getDescription(),
                         s.getReferences() != null ? s.getReferences().size() : 0,
                         s.getExamples() != null ? s.getExamples().size() : 0,
+                        s.getScenarios() != null ? s.getScenarios().size() : 0,
                         s.getPath()
                 ))
                 .sorted(Comparator.comparing(SkillSummary::getName))

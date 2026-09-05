@@ -58,7 +58,7 @@ var freemailDomains = map[string]bool{
 // AppRepository defines the contract for application registration, verification, and multi-user RBAC.
 type AppRepository interface {
 	HashAPIKey(apiKey string) string
-	RegisterApp(db *gorm.DB, req model.AppRegisterRequest, baseURL string) (*model.AppRegisterResponse, error)
+	RegisterApp(db *gorm.DB, req model.AppRegisterRequest, baseURL string, profile ...*model.UserProfile) (*model.AppRegisterResponse, error)
 	VerifyApp(db *gorm.DB, token string) (*model.AppVerifyResponse, error)
 	AuthenticateAPIKey(db *gorm.DB, apiKey string) (*model.RegisteredApp, error)
 	AuthenticateContext(db *gorm.DB, apiKey string) (*model.AuthContext, error)
@@ -98,8 +98,20 @@ func (r *AppsRepository) generateAPIKey() (string, error) {
 }
 
 // RegisterApp registers a new application with domain scoping and seeds the creator as OWNER.
-func (r *AppsRepository) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, baseURL string) (*model.AppRegisterResponse, error) {
-	emailParts := strings.Split(req.Email, "@")
+// When an OAuth profile is supplied, it captures user profile attributes and activates the app and key immediately.
+func (r *AppsRepository) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, baseURL string, profile ...*model.UserProfile) (*model.AppRegisterResponse, error) {
+	var userProfile *model.UserProfile
+	if len(profile) > 0 && profile[0] != nil {
+		userProfile = profile[0]
+	}
+
+	email := strings.TrimSpace(req.Email)
+	if email == "" && userProfile != nil && userProfile.Email != "" {
+		email = strings.TrimSpace(userProfile.Email)
+		req.Email = email
+	}
+
+	emailParts := strings.Split(email, "@")
 	if len(emailParts) != 2 || strings.TrimSpace(emailParts[0]) == "" || strings.TrimSpace(emailParts[1]) == "" {
 		return nil, ErrInvalidRegistrationEmail
 	}
@@ -111,12 +123,12 @@ func (r *AppsRepository) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, 
 	}
 
 	if freemailDomains[emailDomain] && requestedDomain != emailDomain {
-		return nil, fmt.Errorf("%w: %s cannot claim %s", ErrFreemailDomainProhibited, req.Email, requestedDomain)
+		return nil, fmt.Errorf("%w: %s cannot claim %s", ErrFreemailDomainProhibited, email, requestedDomain)
 	}
 
 	var existing model.RegisteredApp
-	if err := db.Where("email = ?", req.Email).First(&existing).Error; err == nil {
-		return nil, fmt.Errorf("%w: %s", ErrAppAlreadyRegistered, req.Email)
+	if err := db.Where("email = ?", email).First(&existing).Error; err == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAppAlreadyRegistered, email)
 	}
 
 	rawAPIKey, err := r.generateAPIKey()
@@ -140,30 +152,48 @@ func (r *AppsRepository) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, 
 	}
 
 	now := time.Now().UTC()
+	isActive := false
+	var verifiedAt *time.Time
+	if userProfile != nil {
+		isActive = true
+		verifiedAt = &now
+	}
+
 	app := model.RegisteredApp{
 		AppID:                    appID,
 		AppName:                  req.AppName,
 		Domain:                   requestedDomain,
 		AppURN:                   appURN,
 		OrganizationID:           req.OrganizationID,
-		Email:                    req.Email,
+		Email:                    email,
 		DomainVerificationStatus: domainStatus,
 		DNSTXTChallenge:          dnsChallenge,
 		APIKeyHash:               apiKeyHash,
-		IsActive:                 false,
+		IsActive:                 isActive,
 		VerificationToken:        verificationToken,
 		CreatedAt:                now,
+		VerifiedAt:               verifiedAt,
 	}
 
 	ownerMember := model.AppMember{
 		ID:         uuid.New().String(),
 		AppID:      appID,
-		Email:      req.Email,
+		Email:      email,
 		Role:       model.RoleOwner,
 		InvitedBy:  "system_registration",
 		Status:     "ACTIVE",
 		CreatedAt:  now,
 		AcceptedAt: &now,
+	}
+
+	if userProfile != nil {
+		ownerMember.Name = userProfile.Name
+		ownerMember.FamilyName = userProfile.FamilyName
+		ownerMember.GivenName = userProfile.GivenName
+		ownerMember.PreferredUsername = userProfile.PreferredUsername
+		ownerMember.Picture = userProfile.Picture
+		ownerMember.ProfileUpdatedAt = userProfile.UpdatedAt
+		ownerMember.OAuthSub = userProfile.Sub
 	}
 
 	err = db.Transaction(func(tx *gorm.DB) error {
@@ -179,16 +209,18 @@ func (r *AppsRepository) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, 
 		return nil, err
 	}
 
-	defaultBaseURL := os.Getenv("BASE_URL")
-	if defaultBaseURL == "" {
-		defaultBaseURL = "http://localhost:8000"
+	var verificationURL string
+	if !isActive {
+		defaultBaseURL := os.Getenv("BASE_URL")
+		if defaultBaseURL == "" {
+			defaultBaseURL = "http://localhost:8000"
+		}
+		hostURL := strings.TrimRight(baseURL, "/")
+		if hostURL == "" {
+			hostURL = strings.TrimRight(defaultBaseURL, "/")
+		}
+		verificationURL = fmt.Sprintf("%s/api/v1/apps/verify?token=%s", hostURL, verificationToken)
 	}
-	hostURL := strings.TrimRight(baseURL, "/")
-	if hostURL == "" {
-		hostURL = strings.TrimRight(defaultBaseURL, "/")
-	}
-
-	verificationURL := fmt.Sprintf("%s/api/v1/apps/verify?token=%s", hostURL, verificationToken)
 
 	return &model.AppRegisterResponse{
 		AppID:                    app.AppID,
@@ -200,8 +232,10 @@ func (r *AppsRepository) RegisterApp(db *gorm.DB, req model.AppRegisterRequest, 
 		DomainVerificationStatus: app.DomainVerificationStatus,
 		DNSTXTChallenge:          app.DNSTXTChallenge,
 		APIKey:                   rawAPIKey,
+		IsActive:                 app.IsActive,
 		VerificationToken:        app.VerificationToken,
 		VerificationURL:          verificationURL,
+		MemberProfile:            userProfile,
 	}, nil
 }
 

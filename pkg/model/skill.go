@@ -168,4 +168,3 @@ type SkillResponse struct {
 	SimilarityScore *float64               `json:"similarity_score,omitempty"`
 	MatchingChunk   *string                `json:"matching_chunk,omitempty"`
 }
-

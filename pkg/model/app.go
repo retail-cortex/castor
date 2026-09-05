@@ -75,19 +75,39 @@ func (RegisteredApp) TableName() string {
 
 // AppMember represents an individual collaborator/user assigned a role within an application.
 type AppMember struct {
-	ID              string     `gorm:"primaryKey;column:id" json:"id"`
-	AppID           string     `gorm:"uniqueIndex:idx_app_member_email;column:app_id" json:"app_id"`
-	Email           string     `gorm:"uniqueIndex:idx_app_member_email;column:email" json:"email"`
-	Role            AppRole    `gorm:"column:role;default:'EDITOR'" json:"role"`
-	InvitedBy       string     `gorm:"column:invited_by" json:"invited_by"`
-	Status          string     `gorm:"column:status;default:'ACTIVE'" json:"status"` // "ACTIVE", "PENDING_INVITE", "REVOKED"
-	InvitationToken string     `gorm:"index;column:invitation_token" json:"-"`
-	CreatedAt       time.Time  `gorm:"column:created_at" json:"created_at"`
-	AcceptedAt      *time.Time `gorm:"column:accepted_at" json:"accepted_at,omitempty"`
+	ID                string     `gorm:"primaryKey;column:id" json:"id"`
+	AppID             string     `gorm:"uniqueIndex:idx_app_member_email;column:app_id" json:"app_id"`
+	Email             string     `gorm:"uniqueIndex:idx_app_member_email;column:email" json:"email"`
+	Role              AppRole    `gorm:"column:role;default:'EDITOR'" json:"role"`
+	InvitedBy         string     `gorm:"column:invited_by" json:"invited_by"`
+	Status            string     `gorm:"column:status;default:'ACTIVE'" json:"status"` // "ACTIVE", "PENDING_INVITE", "REVOKED"
+	InvitationToken   string     `gorm:"index;column:invitation_token" json:"-"`
+	Name              string     `gorm:"column:name" json:"name,omitempty"`
+	FamilyName        string     `gorm:"column:family_name" json:"family_name,omitempty"`
+	GivenName         string     `gorm:"column:given_name" json:"given_name,omitempty"`
+	PreferredUsername string     `gorm:"column:preferred_username" json:"preferred_username,omitempty"`
+	Picture           string     `gorm:"column:picture" json:"picture,omitempty"`
+	ProfileUpdatedAt  *time.Time `gorm:"column:profile_updated_at" json:"profile_updated_at,omitempty"`
+	OAuthSub          string     `gorm:"index;column:oauth_sub" json:"oauth_sub,omitempty"`
+	CreatedAt         time.Time  `gorm:"column:created_at" json:"created_at"`
+	AcceptedAt        *time.Time `gorm:"column:accepted_at" json:"accepted_at,omitempty"`
 }
 
 func (AppMember) TableName() string {
 	return "app_members"
+}
+
+// UserProfile captures standard OpenID Connect (OIDC Core 1.0) profile claims.
+type UserProfile struct {
+	Sub               string     `json:"sub"`
+	Email             string     `json:"email"`
+	EmailVerified     bool       `json:"email_verified"`
+	Name              string     `json:"name"`
+	FamilyName        string     `json:"family_name"`
+	GivenName         string     `json:"given_name"`
+	PreferredUsername string     `json:"preferred_username"`
+	Picture           string     `json:"picture"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
 }
 
 // AppAPIKey represents a scoped API key provisioned for a user, team, or CI/CD pipeline.
@@ -122,7 +142,8 @@ type AppRegisterRequest struct {
 	AppName        string `json:"app_name" binding:"required"`
 	Domain         string `json:"domain"`
 	OrganizationID string `json:"organization_id"`
-	Email          string `json:"email" binding:"required"`
+	Email          string `json:"email"`
+	OAuthToken     string `json:"oauth_token,omitempty"`
 }
 
 type AppRegisterResponse struct {
@@ -135,8 +156,10 @@ type AppRegisterResponse struct {
 	DomainVerificationStatus DomainVerificationStatus `json:"domain_verification_status"`
 	DNSTXTChallenge          string                   `json:"dns_txt_challenge,omitempty"`
 	APIKey                   string                   `json:"api_key"`
-	VerificationToken        string                   `json:"verification_token"`
-	VerificationURL          string                   `json:"verification_url"`
+	IsActive                 bool                     `json:"is_active"`
+	VerificationToken        string                   `json:"verification_token,omitempty"`
+	VerificationURL          string                   `json:"verification_url,omitempty"`
+	MemberProfile            *UserProfile             `json:"member_profile,omitempty"`
 }
 
 type AppVerifyResponse struct {

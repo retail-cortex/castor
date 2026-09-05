@@ -27,16 +27,23 @@ public class SkillSummary {
     private int referenceCount;
     @JsonProperty("example_count")
     private int exampleCount;
+    @JsonProperty("scenario_count")
+    private int scenarioCount;
     private String path;
 
     public SkillSummary() {
     }
 
     public SkillSummary(String name, String description, int referenceCount, int exampleCount, String path) {
+        this(name, description, referenceCount, exampleCount, 0, path);
+    }
+
+    public SkillSummary(String name, String description, int referenceCount, int exampleCount, int scenarioCount, String path) {
         this.name = name;
         this.description = description;
         this.referenceCount = referenceCount;
         this.exampleCount = exampleCount;
+        this.scenarioCount = scenarioCount;
         this.path = path;
     }
 
@@ -70,6 +77,14 @@ public class SkillSummary {
 
     public void setExampleCount(int exampleCount) {
         this.exampleCount = exampleCount;
+    }
+
+    public int getScenarioCount() {
+        return scenarioCount;
+    }
+
+    public void setScenarioCount(int scenarioCount) {
+        this.scenarioCount = scenarioCount;
     }
 
     public String getPath() {

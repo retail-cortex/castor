@@ -467,6 +467,148 @@ class SkillLoaderTest {
         }
     }
 
+    @Test
+    @DisplayName("Should parse scenario markdown definition with expected_skills")
+    void testParseScenario() {
+        String content = """
+                ---
+                prompt: "Deploy the app"
+                executes: true
+                expected_skills:
+                  - deploy_tool
+                  - status_tool
+                threshold: 0.85
+                ---
+                Application successfully deployed.
+                """;
+        ScenarioDefinition scen = SkillLoader.parseScenario("test_scen", content);
+        assertThat(scen.getName()).isEqualTo("test_scen");
+        assertThat(scen.getPrompt()).isEqualTo("Deploy the app");
+        assertThat(scen.isExecutes()).isTrue();
+        assertThat(scen.getExpectedSkills()).containsExactly("deploy_tool", "status_tool");
+        assertThat(scen.getSkillsApplied()).containsExactly("deploy_tool", "status_tool");
+        assertThat(scen.getThreshold()).isEqualTo(0.85);
+        assertThat(scen.getOutcome()).isEqualTo("Application successfully deployed.");
+    }
+
+    @Test
+    @DisplayName("Should compute text similarity accurately")
+    void testComputeTextSimilarity() {
+        assertThat(SkillLoader.computeTextSimilarity("hello world", "hello world")).isEqualTo(1.0);
+        assertThat(SkillLoader.computeTextSimilarity("", "")).isEqualTo(1.0);
+        assertThat(SkillLoader.computeTextSimilarity("hello", "")).isEqualTo(0.0);
+        assertThat(SkillLoader.computeTextSimilarity("apple banana", "cat dog")).isEqualTo(0.0);
+        double sim = SkillLoader.computeTextSimilarity("the quick brown fox", "the brown fox jumps");
+        assertThat(sim).isGreaterThan(0.5).isLessThan(1.0);
+    }
+
+    @Test
+    @DisplayName("Should evaluate scenario passing when tools match and similarity exceeds threshold")
+    void testEvaluateScenarioSuccess() {
+        ScenarioDefinition scen = new ScenarioDefinition(
+                "deploy_check",
+                "Deploy app",
+                true,
+                List.of("deploy_tool"),
+                0.70,
+                "Deployment finished with code 0",
+                Map.of()
+        );
+        ScenarioEvaluationResult res = SkillLoader.evaluateScenario(
+                scen,
+                "Deployment finished with status code 0 successfully",
+                List.of("deploy_tool", "extra_tool")
+        );
+        assertThat(res.isPassed()).isTrue();
+        assertThat(res.isSkillsPassed()).isTrue();
+        assertThat(res.getMissingSkills()).isEmpty();
+        assertThat(res.getSimilarityScore()).isGreaterThanOrEqualTo(0.70);
+        assertThat(res.getErrors()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should fail scenario evaluation when expected tool is missing")
+    void testEvaluateScenarioMissingTool() {
+        ScenarioDefinition scen = new ScenarioDefinition(
+                "deploy_check",
+                "Deploy app",
+                true,
+                List.of("deploy_tool"),
+                0.50,
+                "Done",
+                Map.of()
+        );
+        ScenarioEvaluationResult res = SkillLoader.evaluateScenario(
+                scen,
+                "Done",
+                List.of("other_tool")
+        );
+        assertThat(res.isPassed()).isFalse();
+        assertThat(res.isSkillsPassed()).isFalse();
+        assertThat(res.getMissingSkills()).containsExactly("deploy_tool");
+    }
+
+    @Test
+    @DisplayName("Should fail scenario evaluation when similarity is below threshold")
+    void testEvaluateScenarioLowSimilarity() {
+        ScenarioDefinition scen = new ScenarioDefinition(
+                "deploy_check",
+                "Deploy app",
+                false,
+                List.of(),
+                0.90,
+                "The server has rebooted cleanly and all processes are green.",
+                Map.of()
+        );
+        ScenarioEvaluationResult res = SkillLoader.evaluateScenario(
+                scen,
+                "Something went wrong, completely different response.",
+                List.of()
+        );
+        assertThat(res.isPassed()).isFalse();
+        assertThat(res.getSimilarityScore()).isLessThan(0.90);
+        assertThat(res.getErrors()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("Should load scenarios directory from skill folder")
+    void testLoadSkillWithScenarios(@TempDir Path tempDir) throws IOException {
+        Path skillDir = tempDir.resolve("my-skill");
+        Files.createDirectories(skillDir);
+        Files.writeString(skillDir.resolve("SKILL.md"), """
+                ---
+                name: my-skill
+                description: Skill with scenarios
+                license: Apache-2.0
+                ---
+                # My Skill
+                """);
+
+        Path scDir = skillDir.resolve("scenarios");
+        Files.createDirectories(scDir);
+        Files.writeString(scDir.resolve("build_check.md"), """
+                ---
+                prompt: "Build target"
+                executes: true
+                expected_skills:
+                  - bazel_build
+                threshold: 0.80
+                ---
+                Target built successfully.
+                """);
+
+        SkillDefinition skill = SkillLoader.loadSkillFromDir(skillDir);
+        assertThat(skill).isNotNull();
+        assertThat(skill.getScenarios()).containsKey("build_check");
+        ScenarioDefinition scen = skill.getScenario("build_check");
+        assertThat(scen).isNotNull();
+        assertThat(scen.getPrompt()).isEqualTo("Build target");
+        assertThat(scen.getExpectedSkills()).containsExactly("bazel_build");
+
+        Map<String, Object> map = skill.toMap();
+        assertThat(map).containsKey("scenarios");
+    }
+
     private void createMockSkillZip(Path zipPath, String skillName, String skillDescription) throws IOException {
         createMockSkillZip(zipPath, skillName, skillDescription, "extracted-repo/");
     }

@@ -26,6 +26,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/retail-cortex/castor/pkg/auth"
 	"github.com/retail-cortex/castor/pkg/data"
 	"github.com/retail-cortex/castor/pkg/embedding"
 	"github.com/retail-cortex/castor/pkg/embedding/alloydb"
@@ -68,7 +69,13 @@ func SetupAppEngine(cfg *Config) *gin.Engine {
 
 	appsSvc := service.NewAppsService()
 	castorSvc := service.NewCastorServiceWithProvider(embProvider)
-	handlers := NewServerHandlers(appsSvc, castorSvc)
+	tokenValidator := auth.NewOIDCTokenValidator(auth.ValidatorConfig{
+		RequireOAuth:     cfg.RequireOAuth,
+		ExpectedIssuer:   cfg.OAuthIssuerURL,
+		ExpectedAudience: cfg.OAuthAudience,
+		UserInfoURL:      cfg.OAuthUserInfoURL,
+	})
+	handlers := NewServerHandlers(appsSvc, castorSvc, tokenValidator, cfg)
 
 	mcpServer := mcp.NewMCPServer(appsSvc, castorSvc)
 	sseServer := server.NewSSEServer(mcpServer.Server())

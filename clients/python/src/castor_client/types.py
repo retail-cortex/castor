@@ -78,6 +78,54 @@ class SkillDirectorySearchResult:
 
 
 @dataclass
+class ScenarioDefinition:
+    """Automated behavioral test scenario definition for a skill."""
+
+    name: str
+    prompt: str
+    executes: bool = False
+    expected_skills: List[str] = field(default_factory=list)
+    threshold: float = 0.70
+    outcome: str = ""
+    description: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "prompt": self.prompt,
+            "executes": self.executes,
+            "expected_skills": self.expected_skills,
+            "threshold": self.threshold,
+            "outcome": self.outcome,
+        }
+
+
+@dataclass
+class ScenarioEvaluationResult:
+    """Execution results for a scenario evaluated against an agent."""
+
+    scenario_name: str
+    passed: bool
+    similarity_score: float
+    threshold: float
+    tools_expected: List[str] = field(default_factory=list)
+    tools_applied: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "scenario_name": self.scenario_name,
+            "passed": self.passed,
+            "similarity_score": self.similarity_score,
+            "threshold": self.threshold,
+            "tools_expected": self.tools_expected,
+            "tools_applied": self.tools_applied,
+            "errors": self.errors,
+        }
+
+
+@dataclass
 class SkillDefinition:
     """Represents a loaded enterprise skill definition."""
 
@@ -98,6 +146,7 @@ class SkillDefinition:
     metadata: Dict[str, str] = field(default_factory=dict)
     references: Dict[str, str] = field(default_factory=dict)
     examples: Dict[str, str] = field(default_factory=dict)
+    scenarios: Dict[str, ScenarioDefinition] = field(default_factory=dict)
     scripts: List[Dict[str, object]] = field(default_factory=list)
     resources: List[Dict[str, object]] = field(default_factory=list)
     path: str = ""
@@ -116,6 +165,10 @@ class SkillDefinition:
         if name in self.examples:
             return self.examples[name]
         return None
+
+    def get_scenario(self, name: str) -> Optional[ScenarioDefinition]:
+        """Retriever for a specific test scenario."""
+        return self.scenarios.get(name)
 
     def to_dict(self) -> Dict[str, object]:
         """Serializes skill definition to dictionary format."""
@@ -137,6 +190,7 @@ class SkillDefinition:
             "metadata": self.metadata,
             "references": list(self.references.keys()),
             "examples": list(self.examples.keys()),
+            "scenarios": {k: v.to_dict() for k, v in self.scenarios.items()},
             "scripts": self.scripts,
             "resources": self.resources,
             "path": self.path,
@@ -162,5 +216,6 @@ class SkillSummary:
     hitl_tier: HITLPolicyTier = HITLPolicyTier.TIER_1_AUTO_READ
     script_count: int = 0
     resource_count: int = 0
+    scenario_count: int = 0
 
 

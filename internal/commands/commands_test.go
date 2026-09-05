@@ -522,3 +522,53 @@ func TestExecute_LoginMissingEmail(t *testing.T) {
 	assert.Equal(t, 1, code)
 	assert.Contains(t, errOut.String(), "email address required for registration")
 }
+
+func TestExecute_TestCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	skillDir := filepath.Join(tmpDir, "test-cmd-skill")
+	_ = os.MkdirAll(filepath.Join(skillDir, "references"), 0755)
+	_ = os.MkdirAll(filepath.Join(skillDir, "examples"), 0755)
+	_ = os.MkdirAll(filepath.Join(skillDir, "scenarios"), 0755)
+	_ = os.WriteFile(filepath.Join(skillDir, "references", "ref.md"), []byte("ref"), 0644)
+	_ = os.WriteFile(filepath.Join(skillDir, "examples", "ex.md"), []byte("ex"), 0644)
+
+	skillContent := `---
+name: test-cmd-skill
+description: Skill for testing cstr test command
+license: Apache-2.0
+author: Tester
+version: 1.0
+---
+Security Checkpoint CWE-20. 429 Rate Limit backoff.
+[Link](file:///path/to/doc.md)
+`
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0644)
+
+	scenarioContent := `---
+name: scenario-one
+prompt: "How to build"
+executes: true
+expected_skills:
+  - bazel
+threshold: 0.70
+---
+Run bazel build to compile target hermetically.
+`
+	_ = os.WriteFile(filepath.Join(skillDir, "scenarios", "sc1.md"), []byte(scenarioContent), 0644)
+
+	// Test text output
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	code := Execute([]string{"test", skillDir}, out, errOut)
+	assert.Equal(t, 0, code)
+	assert.Contains(t, out.String(), "Castor Skill Scenario Test Report")
+	assert.Contains(t, out.String(), "[PASS] scenario-one")
+
+	// Test json output
+	outJSON := &bytes.Buffer{}
+	errOutJSON := &bytes.Buffer{}
+	code = Execute([]string{"test", "--json", skillDir}, outJSON, errOutJSON)
+	assert.Equal(t, 0, code)
+	assert.Contains(t, outJSON.String(), "\"skill_name\": \"test-cmd-skill\"")
+	assert.Contains(t, outJSON.String(), "\"passed\": true")
+}

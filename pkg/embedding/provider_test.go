@@ -29,8 +29,8 @@ type mockProvider struct {
 	dimension int
 }
 
-func (m *mockProvider) Name() string     { return m.name }
-func (m *mockProvider) Dimension() int  { return m.dimension }
+func (m *mockProvider) Name() string   { return m.name }
+func (m *mockProvider) Dimension() int { return m.dimension }
 func (m *mockProvider) CosineSimilarity(a, b []float64) float64 {
 	return embedding.CosineSimilarity(a, b)
 }

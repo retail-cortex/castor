@@ -21,6 +21,11 @@ filegroup(
 )
 
 alias(
+    name = "go",
+    actual = "@rules_go//go",
+)
+
+alias(
     name = "start-agent",
     actual = "//tests/adk-agent:start_agent",
 )

@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -149,6 +150,147 @@ func ParseFrontmatter(content string) (map[string]string, string) {
 	return data, body
 }
 
+var tokenRe = regexp.MustCompile(`[a-zA-Z0-9_]+`)
+
+// ComputeTextSimilarity computes cosine similarity over token frequencies between expected and actual text.
+func ComputeTextSimilarity(expected, actual string) float64 {
+	expTokens := tokenRe.FindAllString(strings.ToLower(expected), -1)
+	actTokens := tokenRe.FindAllString(strings.ToLower(actual), -1)
+
+	if len(expTokens) == 0 && len(actTokens) == 0 {
+		return 1.0
+	}
+	if len(expTokens) == 0 || len(actTokens) == 0 {
+		return 0.0
+	}
+
+	expFreq := make(map[string]float64)
+	for _, tok := range expTokens {
+		expFreq[tok]++
+	}
+
+	actFreq := make(map[string]float64)
+	for _, tok := range actTokens {
+		actFreq[tok]++
+	}
+
+	var dotProduct float64
+	for tok, count := range expFreq {
+		if actCount, ok := actFreq[tok]; ok {
+			dotProduct += count * actCount
+		}
+	}
+
+	var magExp float64
+	for _, count := range expFreq {
+		magExp += count * count
+	}
+
+	var magAct float64
+	for _, count := range actFreq {
+		magAct += count * count
+	}
+
+	if magExp == 0 || magAct == 0 {
+		return 0.0
+	}
+
+	return dotProduct / (math.Sqrt(magExp) * math.Sqrt(magAct))
+}
+
+// ParseScenarioContent parses a scenario markdown file into a ScenarioDefinition.
+func ParseScenarioContent(content string, defaultName string) (*ScenarioDefinition, error) {
+	re := regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n(.*)$`)
+	matches := re.FindStringSubmatch(content)
+	if len(matches) < 3 {
+		return nil, fmt.Errorf("scenario missing YAML frontmatter")
+	}
+
+	rawYAML := matches[1]
+	body := strings.TrimSpace(matches[2])
+
+	var fm struct {
+		Name           string   `yaml:"name"`
+		Description    string   `yaml:"description"`
+		Prompt         string   `yaml:"prompt"`
+		Executes       bool     `yaml:"executes"`
+		ExpectedSkills []string `yaml:"expected_skills"`
+		SkillsApplied  []string `yaml:"skills_applied"`
+		Threshold      float64  `yaml:"threshold"`
+	}
+
+	if err := yaml.Unmarshal([]byte(rawYAML), &fm); err != nil {
+		return nil, fmt.Errorf("failed to parse scenario frontmatter: %w", err)
+	}
+
+	name := fm.Name
+	if name == "" {
+		name = defaultName
+	}
+
+	expectedSkills := fm.ExpectedSkills
+	if len(expectedSkills) == 0 && len(fm.SkillsApplied) > 0 {
+		expectedSkills = fm.SkillsApplied
+	}
+
+	if strings.TrimSpace(fm.Prompt) == "" {
+		return nil, fmt.Errorf("scenario prompt must be non-empty")
+	}
+
+	threshold := fm.Threshold
+	if threshold <= 0.0 {
+		threshold = 0.70
+	} else if threshold > 1.0 {
+		return nil, fmt.Errorf("scenario threshold must be <= 1.0, got %f", threshold)
+	}
+
+	if fm.Executes && len(expectedSkills) == 0 {
+		return nil, fmt.Errorf("scenario has executes: true but no expected_skills specified")
+	}
+
+	return &ScenarioDefinition{
+		Name:           name,
+		Description:    fm.Description,
+		Prompt:         strings.TrimSpace(fm.Prompt),
+		Executes:       fm.Executes,
+		ExpectedSkills: expectedSkills,
+		Threshold:      threshold,
+		Outcome:        body,
+	}, nil
+}
+
+// EvaluateScenario validates an agent execution against a scenario.
+func EvaluateScenario(scenario ScenarioDefinition, agentOutput string, toolsApplied []string) ScenarioEvaluationResult {
+	res := ScenarioEvaluationResult{
+		ScenarioName:  scenario.Name,
+		Threshold:     scenario.Threshold,
+		ToolsExpected: scenario.ExpectedSkills,
+		ToolsApplied:  toolsApplied,
+		Errors:        []string{},
+	}
+
+	if scenario.Executes {
+		appliedSet := make(map[string]bool)
+		for _, t := range toolsApplied {
+			appliedSet[strings.ToLower(strings.TrimSpace(t))] = true
+		}
+		for _, exp := range scenario.ExpectedSkills {
+			normExp := strings.ToLower(strings.TrimSpace(exp))
+			if !appliedSet[normExp] {
+				res.Errors = append(res.Errors, fmt.Sprintf("missing expected tool/skill execution: %s", exp))
+			}
+		}
+	}
+
+	res.SimilarityScore = ComputeTextSimilarity(scenario.Outcome, agentOutput)
+	if res.SimilarityScore < scenario.Threshold {
+		res.Errors = append(res.Errors, fmt.Sprintf("similarity score %.2f is below threshold %.2f", res.SimilarityScore, scenario.Threshold))
+	}
+
+	res.Passed = len(res.Errors) == 0
+	return res
+}
+
 // ParseDotenvFile parses key-value environment variables from a .env or dotenv configuration file.
 func ParseDotenvFile(envPath string) map[string]string {
 	envVars := make(map[string]string)
@@ -192,7 +334,6 @@ func ParseSkillRootURI(uri string) (scheme, target, ref, subpath string) {
 		}
 		return "pkg", clean[len(prefix):], "", ""
 	}
-
 
 	if strings.HasPrefix(clean, "mod://") || strings.HasPrefix(clean, "go://") {
 		prefix := "mod://"
@@ -504,6 +645,25 @@ func LoadSkillFromDir(skillDir string) (*SkillDefinition, error) {
 		}
 	}
 
+	scenarios := make(map[string]ScenarioDefinition)
+	scenariosDir := filepath.Join(skillDir, "scenarios")
+	if isDir(scenariosDir) {
+		entries, _ := os.ReadDir(scenariosDir)
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
+				scPath := filepath.Join(scenariosDir, entry.Name())
+				if isWithinBaseDir(skillDir, scPath) {
+					if scContent, err := readSkillFileContent(scPath); err == nil {
+						baseName := strings.TrimSuffix(entry.Name(), ".md")
+						if sc, err := ParseScenarioContent(scContent, baseName); err == nil {
+							scenarios[baseName] = *sc
+						}
+					}
+				}
+			}
+		}
+	}
+
 	payload := fmt.Sprintf("%s:%s:%s:%s", name, version, strings.TrimSpace(body), desc)
 	h := sha256.Sum256([]byte(payload))
 	sha256Hash := hex.EncodeToString(h[:])
@@ -526,6 +686,7 @@ func LoadSkillFromDir(skillDir string) (*SkillDefinition, error) {
 		Metadata:         metaDict,
 		References:       references,
 		Examples:         examples,
+		Scenarios:        scenarios,
 		Path:             relPath,
 		SourceURI:        sourceURI,
 		SHA256Hash:       sha256Hash,
@@ -701,7 +862,6 @@ func LoadSkillsFromPackage(packageName string, skillFilter []string) (map[string
 		}
 	}
 
-
 	return loaded, nil
 }
 
@@ -782,7 +942,6 @@ func LoadSkillsFromGoModule(target, ref string, roots, filter []string) (map[str
 		filepath.Join(root, "packages", cleanArtName),
 		filepath.Join(root, "clients", "go"),
 	}
-
 
 	for _, cand := range candidates {
 		if isDir(cand) {
@@ -1408,19 +1567,20 @@ func LoadSkillsFromManifest(manifestPath string) (map[string]*SkillDefinition, e
 	}
 
 	var rawMap map[string]struct {
-		Name          string            `json:"name"`
-		Description   string            `json:"description"`
-		Instructions  string            `json:"instructions"`
-		License       string            `json:"license"`
-		Author        string            `json:"author"`
-		Version       string            `json:"version"`
-		Compatibility string            `json:"compatibility"`
-		Metadata      map[string]string `json:"metadata"`
-		References    map[string]string `json:"references"`
-		Examples      map[string]string `json:"examples"`
-		Path          string            `json:"path"`
-		SourceURI     string            `json:"source_uri"`
-		SHA256Hash    string            `json:"sha256_hash"`
+		Name          string                        `json:"name"`
+		Description   string                        `json:"description"`
+		Instructions  string                        `json:"instructions"`
+		License       string                        `json:"license"`
+		Author        string                        `json:"author"`
+		Version       string                        `json:"version"`
+		Compatibility string                        `json:"compatibility"`
+		Metadata      map[string]string             `json:"metadata"`
+		References    map[string]string             `json:"references"`
+		Examples      map[string]string             `json:"examples"`
+		Scenarios     map[string]ScenarioDefinition `json:"scenarios"`
+		Path          string                        `json:"path"`
+		SourceURI     string                        `json:"source_uri"`
+		SHA256Hash    string                        `json:"sha256_hash"`
 	}
 
 	if err := json.Unmarshal(content, &rawMap); err != nil {
@@ -1440,6 +1600,7 @@ func LoadSkillsFromManifest(manifestPath string) (map[string]*SkillDefinition, e
 			Metadata:      data.Metadata,
 			References:    data.References,
 			Examples:      data.Examples,
+			Scenarios:     data.Scenarios,
 			Path:          data.Path,
 			SourceURI:     data.SourceURI,
 			SHA256Hash:    data.SHA256Hash,
@@ -1538,6 +1699,7 @@ func (r *SkillRegistry) ListSkills() []SkillSummary {
 			Category:       s.Category,
 			Tags:           s.Tags,
 			TriggerPhrases: s.TriggerPhrases,
+			ScenarioCount:  len(s.Scenarios),
 		})
 	}
 	sort.Slice(summaries, func(i, j int) bool {

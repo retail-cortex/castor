@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -553,4 +554,199 @@ func TestRBACCollaboratorsAndScopedKeysREST(t *testing.T) {
 	req.Header.Set("X-API-Key", viewerKeyResp.APIKey)
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func makeOAuthTestJWT(claims map[string]interface{}) string {
+	headerJSON, _ := json.Marshal(map[string]string{"alg": "none", "typ": "JWT"})
+	payloadJSON, _ := json.Marshal(claims)
+
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+
+	return headerB64 + "." + payloadB64 + ".sig"
+}
+
+func TestOAuthRegistration_ValidToken_ImmediateKeyUsability(t *testing.T) {
+	router, _ := setupTestRouter()
+
+	updatedAtEpoch := int64(1710000000)
+	claims := map[string]interface{}{
+		"sub":                "google-oauth2|1092837465",
+		"email":              "alex.developer@enterprise.com",
+		"email_verified":     true,
+		"name":               "Alex Developer",
+		"given_name":         "Alex",
+		"family_name":        "Developer",
+		"preferred_username": "alexdev",
+		"picture":            "https://enterprise.com/photos/alex.jpg",
+		"updated_at":         updatedAtEpoch,
+		"exp":                time.Now().Add(1 * time.Hour).Unix(),
+	}
+	token := makeOAuthTestJWT(claims)
+
+	regReq := model.AppRegisterRequest{
+		AppName: "oauth-service-app",
+		Domain:  "enterprise.com",
+	}
+	bodyBytes, _ := json.Marshal(regReq)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/apps/register", bytes.NewBuffer(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	var appResp model.AppRegisterResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &appResp))
+	assert.NotEmpty(t, appResp.AppID)
+	assert.Equal(t, "alex.developer@enterprise.com", appResp.Email)
+	assert.True(t, appResp.IsActive, "App should be immediately active upon OAuth registration")
+	assert.NotEmpty(t, appResp.APIKey)
+
+	// Verify profile attributes in response
+	require.NotNil(t, appResp.MemberProfile)
+	assert.Equal(t, "Alex Developer", appResp.MemberProfile.Name)
+	assert.Equal(t, "Alex", appResp.MemberProfile.GivenName)
+	assert.Equal(t, "Developer", appResp.MemberProfile.FamilyName)
+	assert.Equal(t, "alexdev", appResp.MemberProfile.PreferredUsername)
+	assert.Equal(t, "https://enterprise.com/photos/alex.jpg", appResp.MemberProfile.Picture)
+	require.NotNil(t, appResp.MemberProfile.UpdatedAt)
+	assert.Equal(t, time.Unix(updatedAtEpoch, 0).UTC(), *appResp.MemberProfile.UpdatedAt)
+
+	// Verify database record in app_members captures all profile attributes
+	db := data.GetDB()
+	var member model.AppMember
+	err := db.Where("app_id = ? AND email = ?", appResp.AppID, "alex.developer@enterprise.com").First(&member).Error
+	require.NoError(t, err)
+	assert.Equal(t, "Alex Developer", member.Name)
+	assert.Equal(t, "Developer", member.FamilyName)
+	assert.Equal(t, "Alex", member.GivenName)
+	assert.Equal(t, "alexdev", member.PreferredUsername)
+	assert.Equal(t, "https://enterprise.com/photos/alex.jpg", member.Picture)
+	assert.Equal(t, "google-oauth2|1092837465", member.OAuthSub)
+	require.NotNil(t, member.ProfileUpdatedAt)
+	assert.Equal(t, updatedAtEpoch, member.ProfileUpdatedAt.Unix())
+
+	// CRITICAL REQUIREMENT: Verify issued API key is immediately active and usable
+	// without needing to call /api/v1/apps/verify!
+	skillPayload := model.SkillCreateRequest{
+		Name:         "oauth-created-skill",
+		Description:  "Created immediately using issued API key",
+		Instructions: "Follow oauth instructions",
+	}
+	sBytes, _ := json.Marshal(skillPayload)
+
+	wSkill := httptest.NewRecorder()
+	reqSkill, _ := http.NewRequest("POST", "/api/v1/skills", bytes.NewBuffer(sBytes))
+	reqSkill.Header.Set("Content-Type", "application/json")
+	reqSkill.Header.Set("X-API-Key", appResp.APIKey)
+	router.ServeHTTP(wSkill, reqSkill)
+
+	require.Equal(t, http.StatusCreated, wSkill.Code, "Issued API key must be immediately usable on protected endpoints")
+	var skillResp model.SkillResponse
+	require.NoError(t, json.Unmarshal(wSkill.Body.Bytes(), &skillResp))
+	assert.Equal(t, "oauth-created-skill", skillResp.Name)
+}
+
+func TestOAuthRegistration_PayloadToken(t *testing.T) {
+	router, _ := setupTestRouter()
+
+	claims := map[string]interface{}{
+		"sub":                "sub-payload-888",
+		"email":              "payload.user@enterprise.com",
+		"name":               "Payload User",
+		"given_name":         "Payload",
+		"family_name":        "User",
+		"preferred_username": "payloadu",
+		"picture":            "https://enterprise.com/p.jpg",
+		"exp":                time.Now().Add(1 * time.Hour).Unix(),
+	}
+	token := makeOAuthTestJWT(claims)
+
+	regReq := model.AppRegisterRequest{
+		AppName:    "payload-token-app",
+		Domain:     "enterprise.com",
+		OAuthToken: token,
+	}
+	bodyBytes, _ := json.Marshal(regReq)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/apps/register", bytes.NewBuffer(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusCreated, w.Code)
+	var appResp model.AppRegisterResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &appResp))
+	assert.True(t, appResp.IsActive)
+	assert.Equal(t, "payload.user@enterprise.com", appResp.Email)
+	require.NotNil(t, appResp.MemberProfile)
+	assert.Equal(t, "Payload User", appResp.MemberProfile.Name)
+}
+
+func TestOAuthRegistration_RequireOAuth_Enforcement(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	data.ResetEngine()
+
+	cfg := &Config{
+		Host:         "localhost",
+		Port:         8000,
+		DatabaseURL:  filepath.Join(os.TempDir(), fmt.Sprintf("oauth_strict_%d.db", time.Now().UnixNano())),
+		RequireOAuth: true,
+	}
+	router := SetupAppEngine(cfg)
+
+	// 1. Unauthenticated registration attempt -> 401 Unauthorized
+	unauthReq := model.AppRegisterRequest{
+		AppName: "unauth-app",
+		Email:   "dev@corp.com",
+	}
+	uBytes, _ := json.Marshal(unauthReq)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/apps/register", bytes.NewBuffer(uBytes))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	// 2. Expired OAuth token -> 401 Unauthorized
+	expiredClaims := map[string]interface{}{
+		"sub":   "sub-exp",
+		"email": "dev@corp.com",
+		"exp":   time.Now().Add(-1 * time.Hour).Unix(),
+	}
+	expToken := makeOAuthTestJWT(expiredClaims)
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/api/v1/apps/register", bytes.NewBuffer(uBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+expToken)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	// 3. Valid OAuth token -> 201 Created and immediate key usability
+	validClaims := map[string]interface{}{
+		"sub":                "sub-valid",
+		"email":              "dev@corp.com",
+		"name":               "Strict Dev",
+		"family_name":        "Dev",
+		"given_name":         "Strict",
+		"preferred_username": "strictdev",
+		"picture":            "https://corp.com/pic.png",
+		"exp":                time.Now().Add(1 * time.Hour).Unix(),
+	}
+	validToken := makeOAuthTestJWT(validClaims)
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/api/v1/apps/register", bytes.NewBuffer(uBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+validToken)
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	var appResp model.AppRegisterResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &appResp))
+	assert.True(t, appResp.IsActive)
+	assert.NotEmpty(t, appResp.APIKey)
 }

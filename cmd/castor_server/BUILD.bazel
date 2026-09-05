@@ -11,6 +11,7 @@ go_library(
     ],
     importpath = "github.com/retail-cortex/castor/cmd/castor_server",
     deps = [
+        "//pkg/auth",
         "//pkg/data",
         "//pkg/embedding",
         "//pkg/embedding/alloydb",

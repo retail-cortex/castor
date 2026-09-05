@@ -143,6 +143,34 @@ public class SkillAuditor {
             result.getErrors().add("SKILL.md or references missing markdown clickable links using file:/// scheme");
         }
 
+        // 6. Optional Scenarios Directory Check
+        Path scenDir = skillDir.resolve("scenarios");
+        if (Files.isDirectory(scenDir)) {
+            try (Stream<Path> stream = Files.list(scenDir)) {
+                stream.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".md"))
+                        .forEach(p -> {
+                            try {
+                                String scContent = Files.readString(p);
+                                String scName = p.getFileName().toString();
+                                com.retailcortex.castor.loader.ScenarioDefinition sd = SkillLoader.parseScenario(scName, scContent);
+                                if (sd.getPrompt() == null || sd.getPrompt().isBlank()) {
+                                    result.getErrors().add("Scenario " + scName + " missing prompt");
+                                }
+                                if (sd.getThreshold() < 0.0 || sd.getThreshold() > 1.0) {
+                                    result.getErrors().add(String.format("Scenario %s threshold %f must be between 0.0 and 1.0", scName, sd.getThreshold()));
+                                }
+                                if (sd.getOutcome() == null || sd.getOutcome().isBlank()) {
+                                    result.getErrors().add("Scenario " + scName + " missing outcome body");
+                                }
+                            } catch (Exception e) {
+                                result.getErrors().add("Scenario " + p.getFileName() + " invalid: " + e.getMessage());
+                            }
+                        });
+            } catch (IOException e) {
+                result.getErrors().add("Failed to read scenarios directory: " + e.getMessage());
+            }
+        }
+
         return result;
     }
 

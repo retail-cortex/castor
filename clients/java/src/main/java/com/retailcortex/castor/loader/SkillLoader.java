@@ -184,6 +184,191 @@ public class SkillLoader {
     }
 
     /**
+     * Parses a scenario markdown file into a ScenarioDefinition.
+     */
+    public static ScenarioDefinition parseScenario(String name, String content) {
+        if (content == null || content.isBlank()) {
+            return new ScenarioDefinition(name, "", false, Collections.emptyList(), 0.70, "", Collections.emptyMap());
+        }
+
+        Matcher matcher = FRONTMATTER_PATTERN.matcher(content);
+        if (!matcher.find()) {
+            return new ScenarioDefinition(name, "", false, Collections.emptyList(), 0.70, content.trim(), Collections.emptyMap());
+        }
+
+        String yamlText = matcher.group(1);
+        String outcome = matcher.group(2).trim();
+
+        String prompt = "";
+        boolean executes = false;
+        List<String> expectedSkills = new ArrayList<>();
+        double threshold = 0.70;
+        Map<String, String> meta = new HashMap<>();
+
+        try {
+            Yaml yaml = new Yaml();
+            Map<String, Object> loaded = yaml.load(yamlText);
+            if (loaded != null) {
+                if (loaded.containsKey("prompt") && loaded.get("prompt") != null) {
+                    prompt = String.valueOf(loaded.get("prompt"));
+                }
+                if (loaded.containsKey("executes") && loaded.get("executes") != null) {
+                    Object exObj = loaded.get("executes");
+                    executes = exObj instanceof Boolean ? (Boolean) exObj : Boolean.parseBoolean(String.valueOf(exObj));
+                }
+                Object skillsObj = loaded.get("expected_skills");
+                if (skillsObj == null) {
+                    skillsObj = loaded.get("skills_applied");
+                }
+                if (skillsObj instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (item != null) expectedSkills.add(String.valueOf(item));
+                    }
+                } else if (skillsObj instanceof String str && !str.isBlank()) {
+                    for (String part : str.split(",")) {
+                        String trimmed = part.trim();
+                        if (!trimmed.isEmpty()) expectedSkills.add(trimmed);
+                    }
+                }
+                if (loaded.containsKey("threshold") && loaded.get("threshold") != null) {
+                    Object thObj = loaded.get("threshold");
+                    if (thObj instanceof Number num) {
+                        threshold = num.doubleValue();
+                    } else {
+                        threshold = Double.parseDouble(String.valueOf(thObj));
+                    }
+                }
+                if (loaded.containsKey("metadata") && loaded.get("metadata") instanceof Map<?, ?> m) {
+                    for (Map.Entry<?, ?> e : m.entrySet()) {
+                        if (e.getValue() != null) {
+                            meta.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            for (String line : yamlText.split("\n")) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#") || !line.contains(":")) continue;
+                String[] parts = line.split(":", 2);
+                String k = parts[0].trim();
+                String v = parts[1].trim().replaceAll("^['\"]|['\"]$", "");
+                if (k.equals("prompt")) prompt = v;
+                else if (k.equals("executes")) executes = Boolean.parseBoolean(v);
+                else if (k.equals("threshold")) {
+                    try { threshold = Double.parseDouble(v); } catch (Exception ignored) {}
+                } else if (k.equals("expected_skills") || k.equals("skills_applied")) {
+                    if (v.startsWith("[") && v.endsWith("]")) {
+                        String inner = v.substring(1, v.length() - 1);
+                        for (String part : inner.split(",")) {
+                            String trimmed = part.trim().replaceAll("^['\"]|['\"]$", "");
+                            if (!trimmed.isEmpty()) expectedSkills.add(trimmed);
+                        }
+                    }
+                }
+            }
+        }
+
+        return new ScenarioDefinition(name, prompt, executes, expectedSkills, threshold, outcome, meta);
+    }
+
+    /**
+     * Computes cosine similarity between token frequencies of two strings.
+     */
+    public static double computeTextSimilarity(String s1, String s2) {
+        if (s1 == null) s1 = "";
+        if (s2 == null) s2 = "";
+        Map<String, Integer> v1 = tokenizeAndCount(s1);
+        Map<String, Integer> v2 = tokenizeAndCount(s2);
+        if (v1.isEmpty() && v2.isEmpty()) {
+            return 1.0;
+        }
+        if (v1.isEmpty() || v2.isEmpty()) {
+            return 0.0;
+        }
+        double dotProduct = 0.0;
+        for (Map.Entry<String, Integer> entry : v1.entrySet()) {
+            if (v2.containsKey(entry.getKey())) {
+                dotProduct += entry.getValue() * v2.get(entry.getKey());
+            }
+        }
+        double norm1 = 0.0;
+        for (int c : v1.values()) {
+            norm1 += (double) c * c;
+        }
+        double norm2 = 0.0;
+        for (int c : v2.values()) {
+            norm2 += (double) c * c;
+        }
+        double denom = Math.sqrt(norm1) * Math.sqrt(norm2);
+        if (denom == 0.0) {
+            return 0.0;
+        }
+        double val = dotProduct / denom;
+        if (val >= 1.0 - 1e-9) {
+            return 1.0;
+        }
+        return Math.min(1.0, Math.max(0.0, val));
+    }
+
+    private static Map<String, Integer> tokenizeAndCount(String text) {
+        Map<String, Integer> counts = new HashMap<>();
+        Matcher m = Pattern.compile("[a-zA-Z0-9_]+").matcher(text.toLowerCase());
+        while (m.find()) {
+            String word = m.group();
+            counts.put(word, counts.getOrDefault(word, 0) + 1);
+        }
+        return counts;
+    }
+
+    /**
+     * Evaluates a scenario definition against agent output and tools invoked.
+     */
+    public static ScenarioEvaluationResult evaluateScenario(ScenarioDefinition scenario, String agentOutput, List<String> toolsUsed) {
+        if (scenario == null) {
+            return new ScenarioEvaluationResult("", false, 0.0, 0.70, false, false, Collections.emptyList(), Collections.emptyList(), List.of("Scenario is null"));
+        }
+        List<String> actualTools = toolsUsed != null ? new ArrayList<>(toolsUsed) : Collections.emptyList();
+        Set<String> actualSet = new HashSet<>(actualTools);
+
+        List<String> missingSkills = new ArrayList<>();
+        boolean skillsPassed = true;
+        if (scenario.isExecutes()) {
+            for (String exp : scenario.getExpectedSkills()) {
+                if (!actualSet.contains(exp)) {
+                    missingSkills.add(exp);
+                    skillsPassed = false;
+                }
+            }
+        }
+
+        double sim = computeTextSimilarity(agentOutput != null ? agentOutput : "", scenario.getOutcome());
+        boolean simPassed = sim >= scenario.getThreshold();
+
+        List<String> errors = new ArrayList<>();
+        if (scenario.isExecutes() && !skillsPassed) {
+            errors.add("Missing expected skills: " + String.join(", ", missingSkills));
+        }
+        if (!simPassed) {
+            errors.add(String.format("Similarity score %.4f is below threshold %.4f", sim, scenario.getThreshold()));
+        }
+
+        boolean passed = (scenario.isExecutes() ? skillsPassed : true) && simPassed;
+
+        return new ScenarioEvaluationResult(
+                scenario.getName(),
+                passed,
+                sim,
+                scenario.getThreshold(),
+                scenario.isExecutes(),
+                skillsPassed,
+                missingSkills,
+                actualTools,
+                errors
+        );
+    }
+
+    /**
      * Parses key-value environment variables from a dotenv file.
      */
     public static Map<String, String> parseDotenvFile(Path dotenvPath) {
@@ -451,6 +636,25 @@ public class SkillLoader {
                 }
             }
 
+            Map<String, ScenarioDefinition> scenarios = new TreeMap<>();
+            Path scenDir = skillDir.resolve("scenarios");
+            if (Files.isDirectory(scenDir)) {
+                try (Stream<Path> stream = Files.list(scenDir)) {
+                    stream.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".md"))
+                            .sorted(Comparator.comparing(p -> p.getFileName().toString()))
+                            .forEach(p -> {
+                                try {
+                                    String fname = p.getFileName().toString();
+                                    String scenName = fname.endsWith(".md") ? fname.substring(0, fname.length() - 3) : fname;
+                                    ScenarioDefinition sd = parseScenario(scenName, Files.readString(p));
+                                    scenarios.put(scenName, sd);
+                                } catch (IOException e) {
+                                    logger.debug("Failed reading scenario file: {}", e.getMessage());
+                                }
+                            });
+                }
+            }
+
             String sha256Hex = "";
             try {
                 java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
@@ -476,6 +680,7 @@ public class SkillLoader {
                     meta,
                     references,
                     examples,
+                    scenarios,
                     relPath,
                     sourceUri,
                     sha256Hex

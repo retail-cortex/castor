@@ -201,3 +201,156 @@ Security Checkpoint CWE-10. 429 Retry. [Link](file:///doc.md)
 	assert.False(t, res2.Passed)
 	assert.False(t, res2.L3TreeValid)
 }
+
+func TestParseScenario(t *testing.T) {
+	content := `---
+name: test-scenario
+description: Verifies agent bazel invocation
+prompt: "How do I build the target?"
+executes: true
+expected_skills:
+  - bazel
+threshold: 0.75
+---
+Expected outcome body here.
+`
+	sc, err := validator.ParseScenario(content, "default-sc")
+	assert.NoError(t, err)
+	assert.Equal(t, "test-scenario", sc.Name)
+	assert.Equal(t, "Verifies agent bazel invocation", sc.Description)
+	assert.Equal(t, "How do I build the target?", sc.Prompt)
+	assert.True(t, sc.Executes)
+	assert.Equal(t, []string{"bazel"}, sc.ExpectedSkills)
+	assert.Equal(t, 0.75, sc.Threshold)
+	assert.Equal(t, "Expected outcome body here.", sc.Outcome)
+
+	// Test alias skills_applied
+	aliasContent := `---
+prompt: "Run tests"
+executes: true
+skills_applied:
+  - go-test
+threshold: 0.80
+---
+Expected test outcome
+`
+	sc2, err := validator.ParseScenario(aliasContent, "sc-alias")
+	assert.NoError(t, err)
+	assert.Equal(t, "sc-alias", sc2.Name)
+	assert.Equal(t, []string{"go-test"}, sc2.ExpectedSkills)
+
+	// Test invalid: missing prompt
+	badPrompt := `---
+executes: false
+---
+No prompt
+`
+	_, err = validator.ParseScenario(badPrompt, "bad")
+	assert.Error(t, err)
+
+	// Test invalid: executes true with no expected skills
+	badExec := `---
+prompt: "Do something"
+executes: true
+---
+No tools specified
+`
+	_, err = validator.ParseScenario(badExec, "bad-exec")
+	assert.Error(t, err)
+}
+
+func TestCalculateSimilarity(t *testing.T) {
+	// Identical text
+	sim1 := validator.CalculateSimilarity("Bazel build hermetic target", "Bazel build hermetic target")
+	assert.InDelta(t, 1.0, sim1, 0.001)
+
+	// Partial overlap
+	sim2 := validator.CalculateSimilarity("Bazel build hermetic target with bzlmod", "Bazel build target")
+	assert.Greater(t, sim2, 0.5)
+	assert.Less(t, sim2, 1.0)
+
+	// Disjoint
+	sim3 := validator.CalculateSimilarity("apple orange banana", "car truck bicycle")
+	assert.Equal(t, 0.0, sim3)
+
+	// Empty strings
+	assert.Equal(t, 1.0, validator.CalculateSimilarity("", ""))
+	assert.Equal(t, 0.0, validator.CalculateSimilarity("hello", ""))
+}
+
+func TestEvaluateScenario(t *testing.T) {
+	scenario := validator.ScenarioDefinition{
+		Name:           "hermetic-build-test",
+		Prompt:         "Build target",
+		Executes:       true,
+		ExpectedSkills: []string{"bazel"},
+		Threshold:      0.70,
+		Outcome:        "Run bazel build //target to achieve a hermetic build.",
+	}
+
+	// 1. Passing evaluation: tools invoked and output matches
+	passRes := validator.EvaluateScenario(scenario, "Run bazel build //target to achieve a hermetic build.", []string{"bazel"})
+	assert.True(t, passRes.Passed)
+	assert.Empty(t, passRes.Errors)
+	assert.GreaterOrEqual(t, passRes.SimilarityScore, 0.70)
+
+	// 2. Failing evaluation: missing expected tool execution
+	failToolRes := validator.EvaluateScenario(scenario, "Run bazel build //target to achieve a hermetic build.", []string{"python"})
+	assert.False(t, failToolRes.Passed)
+	assert.Contains(t, failToolRes.Errors[0], "missing expected tool/skill execution: bazel")
+
+	// 3. Failing evaluation: low similarity
+	failSimRes := validator.EvaluateScenario(scenario, "Something completely unrelated and different.", []string{"bazel"})
+	assert.False(t, failSimRes.Passed)
+	assert.Contains(t, failSimRes.Errors[0], "similarity score")
+}
+
+func TestAuditSkillDirectory_WithScenarios(t *testing.T) {
+	tmpDir := t.TempDir()
+	skillDir := filepath.Join(tmpDir, "scenario-skill")
+	_ = os.MkdirAll(filepath.Join(skillDir, "references"), 0755)
+	_ = os.MkdirAll(filepath.Join(skillDir, "examples"), 0755)
+	_ = os.MkdirAll(filepath.Join(skillDir, "scenarios"), 0755)
+	_ = os.WriteFile(filepath.Join(skillDir, "references", "ref.md"), []byte("ref"), 0644)
+	_ = os.WriteFile(filepath.Join(skillDir, "examples", "ex.md"), []byte("ex"), 0644)
+
+	skillContent := `---
+name: scenario-skill
+description: Skill with scenarios for testing
+license: Apache-2.0
+author: Tester
+version: 1.0
+---
+Security Checkpoint CWE-20. 429 Rate Limit backoff.
+[Link](file:///path/to/doc.md)
+`
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0644)
+
+	scenarioContent := `---
+name: basic-scenario
+prompt: "Test prompt"
+executes: true
+expected_skills:
+  - test-tool
+threshold: 0.75
+---
+Expected outcome.
+`
+	_ = os.WriteFile(filepath.Join(skillDir, "scenarios", "test_sc.md"), []byte(scenarioContent), 0644)
+
+	res := validator.AuditSkillDirectory(skillDir)
+	assert.True(t, res.Passed, "Errors: %v", res.Errors)
+	assert.True(t, res.ScenariosValid)
+	assert.Equal(t, 1, res.ScenariosCount)
+
+	// Test invalid scenario file in scenarios/
+	badScenarioContent := `---
+prompt: ""
+---
+`
+	_ = os.WriteFile(filepath.Join(skillDir, "scenarios", "bad.md"), []byte(badScenarioContent), 0644)
+	resBad := validator.AuditSkillDirectory(skillDir)
+	assert.False(t, resBad.Passed)
+	assert.False(t, resBad.ScenariosValid)
+	assert.NotEmpty(t, resBad.Errors)
+}

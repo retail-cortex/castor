@@ -17,6 +17,7 @@ package validator
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,6 +59,39 @@ func (f *SkillFrontmatter) Validate() error {
 	return nil
 }
 
+// ScenarioFrontmatter represents raw YAML frontmatter in a scenario test file.
+type ScenarioFrontmatter struct {
+	Name           string   `yaml:"name" json:"name"`
+	Description    string   `yaml:"description" json:"description"`
+	Prompt         string   `yaml:"prompt" json:"prompt"`
+	Executes       bool     `yaml:"executes" json:"executes"`
+	ExpectedSkills []string `yaml:"expected_skills" json:"expected_skills"`
+	SkillsApplied  []string `yaml:"skills_applied" json:"skills_applied"` // Backward-compatible alias
+	Threshold      float64  `yaml:"threshold" json:"threshold"`
+}
+
+// ScenarioDefinition defines a parsed scenario test case.
+type ScenarioDefinition struct {
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Prompt         string   `json:"prompt"`
+	Executes       bool     `json:"executes"`
+	ExpectedSkills []string `json:"expected_skills"`
+	Threshold      float64  `json:"threshold"`
+	Outcome        string   `json:"outcome"`
+}
+
+// ScenarioEvaluationResult details execution results against an agent.
+type ScenarioEvaluationResult struct {
+	ScenarioName    string   `json:"scenario_name"`
+	Passed          bool     `json:"passed"`
+	SimilarityScore float64  `json:"similarity_score"`
+	Threshold       float64  `json:"threshold"`
+	ToolsExpected   []string `json:"tools_expected"`
+	ToolsApplied    []string `json:"tools_applied"`
+	Errors          []string `json:"errors"`
+}
+
 // SkillAuditResult contains audit pass/fail details for a single skill directory.
 type SkillAuditResult struct {
 	SkillName           string   `json:"skill_name"`
@@ -68,6 +102,8 @@ type SkillAuditResult struct {
 	CWESecurityValid    bool     `json:"cwe_security_valid"`
 	RateLimit429Valid   bool     `json:"rate_limit_429_valid"`
 	ClickableLinksValid bool     `json:"clickable_links_valid"`
+	ScenariosValid      bool     `json:"scenarios_valid"`
+	ScenariosCount      int      `json:"scenarios_count"`
 	Errors              []string `json:"errors"`
 }
 
@@ -122,6 +158,170 @@ func ParseFrontmatter(content string) (map[string]string, string) {
 		}
 	}
 	return data, body
+}
+
+var tokenRe = regexp.MustCompile(`[a-zA-Z0-9_]+`)
+
+// CalculateSimilarity computes the cosine similarity over token frequencies between expected and actual text.
+func CalculateSimilarity(expected, actual string) float64 {
+	expTokens := tokenRe.FindAllString(strings.ToLower(expected), -1)
+	actTokens := tokenRe.FindAllString(strings.ToLower(actual), -1)
+
+	if len(expTokens) == 0 && len(actTokens) == 0 {
+		return 1.0
+	}
+	if len(expTokens) == 0 || len(actTokens) == 0 {
+		return 0.0
+	}
+
+	expFreq := make(map[string]float64)
+	for _, tok := range expTokens {
+		expFreq[tok]++
+	}
+
+	actFreq := make(map[string]float64)
+	for _, tok := range actTokens {
+		actFreq[tok]++
+	}
+
+	var dotProduct float64
+	for tok, count := range expFreq {
+		if actCount, ok := actFreq[tok]; ok {
+			dotProduct += count * actCount
+		}
+	}
+
+	var magExp float64
+	for _, count := range expFreq {
+		magExp += count * count
+	}
+
+	var magAct float64
+	for _, count := range actFreq {
+		magAct += count * count
+	}
+
+	if magExp == 0 || magAct == 0 {
+		return 0.0
+	}
+
+	return dotProduct / (math.Sqrt(magExp) * math.Sqrt(magAct))
+}
+
+// ParseScenario parses a scenario markdown file into a ScenarioDefinition.
+func ParseScenario(content string, defaultName string) (*ScenarioDefinition, error) {
+	pattern := regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n(.*)$`)
+	matches := pattern.FindStringSubmatch(content)
+	if len(matches) < 3 {
+		return nil, fmt.Errorf("scenario file missing YAML frontmatter enclosed in '---'")
+	}
+
+	rawYAML := matches[1]
+	body := strings.TrimSpace(matches[2])
+
+	var fm ScenarioFrontmatter
+	if err := yaml.Unmarshal([]byte(rawYAML), &fm); err != nil {
+		return nil, fmt.Errorf("invalid scenario YAML frontmatter: %w", err)
+	}
+
+	name := fm.Name
+	if name == "" {
+		name = defaultName
+	}
+
+	expectedSkills := fm.ExpectedSkills
+	if len(expectedSkills) == 0 && len(fm.SkillsApplied) > 0 {
+		expectedSkills = fm.SkillsApplied
+	}
+
+	if strings.TrimSpace(fm.Prompt) == "" {
+		return nil, fmt.Errorf("scenario frontmatter missing required 'prompt' field")
+	}
+
+	threshold := fm.Threshold
+	if threshold <= 0.0 {
+		threshold = 0.70
+	} else if threshold > 1.0 {
+		return nil, fmt.Errorf("scenario threshold must be <= 1.0, got %f", threshold)
+	}
+
+	if fm.Executes && len(expectedSkills) == 0 {
+		return nil, fmt.Errorf("scenario has executes: true but no expected_skills (or skills_applied) specified")
+	}
+
+	return &ScenarioDefinition{
+		Name:           name,
+		Description:    fm.Description,
+		Prompt:         strings.TrimSpace(fm.Prompt),
+		Executes:       fm.Executes,
+		ExpectedSkills: expectedSkills,
+		Threshold:      threshold,
+		Outcome:        body,
+	}, nil
+}
+
+// LoadSkillScenarios reads all scenario definitions from a skill's scenarios/ directory.
+func LoadSkillScenarios(skillDir string) ([]ScenarioDefinition, error) {
+	scenariosDir := filepath.Join(skillDir, "scenarios")
+	if !isDir(scenariosDir) {
+		return nil, nil
+	}
+
+	entries, err := os.ReadDir(scenariosDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var scenarios []ScenarioDefinition
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		path := filepath.Join(scenariosDir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		baseName := strings.TrimSuffix(entry.Name(), ".md")
+		sc, err := ParseScenario(string(data), baseName)
+		if err != nil {
+			return nil, fmt.Errorf("error in %s: %w", entry.Name(), err)
+		}
+		scenarios = append(scenarios, *sc)
+	}
+	return scenarios, nil
+}
+
+// EvaluateScenario validates agent execution and output similarity against scenario requirements.
+func EvaluateScenario(scenario ScenarioDefinition, agentOutput string, toolsApplied []string) ScenarioEvaluationResult {
+	res := ScenarioEvaluationResult{
+		ScenarioName:  scenario.Name,
+		Threshold:     scenario.Threshold,
+		ToolsExpected: scenario.ExpectedSkills,
+		ToolsApplied:  toolsApplied,
+		Errors:        []string{},
+	}
+
+	if scenario.Executes {
+		appliedSet := make(map[string]bool)
+		for _, t := range toolsApplied {
+			appliedSet[strings.ToLower(strings.TrimSpace(t))] = true
+		}
+		for _, exp := range scenario.ExpectedSkills {
+			normExp := strings.ToLower(strings.TrimSpace(exp))
+			if !appliedSet[normExp] {
+				res.Errors = append(res.Errors, fmt.Sprintf("missing expected tool/skill execution: %s", exp))
+			}
+		}
+	}
+
+	res.SimilarityScore = CalculateSimilarity(scenario.Outcome, agentOutput)
+	if res.SimilarityScore < scenario.Threshold {
+		res.Errors = append(res.Errors, fmt.Sprintf("similarity score %.2f is below threshold %.2f", res.SimilarityScore, scenario.Threshold))
+	}
+
+	res.Passed = len(res.Errors) == 0
+	return res
 }
 
 // AuditSkillDirectory validates a single skill directory.
@@ -237,11 +437,25 @@ func AuditSkillDirectory(skillDir string) SkillAuditResult {
 		result.Errors = append(result.Errors, "SKILL.md or references missing markdown clickable links using file:/// scheme")
 	}
 
+	// 6. Scenarios Directory Check (if present)
+	scenariosDir := filepath.Join(skillDir, "scenarios")
+	result.ScenariosValid = true
+	if isDir(scenariosDir) {
+		scenarios, err := LoadSkillScenarios(skillDir)
+		if err != nil {
+			result.ScenariosValid = false
+			result.Errors = append(result.Errors, fmt.Sprintf("Scenarios validation error: %v", err))
+		} else {
+			result.ScenariosCount = len(scenarios)
+		}
+	}
+
 	result.Passed = result.FrontmatterValid &&
 		result.L3TreeValid &&
 		result.CWESecurityValid &&
 		result.RateLimit429Valid &&
 		result.ClickableLinksValid &&
+		result.ScenariosValid &&
 		len(result.Errors) == 0
 
 	return result

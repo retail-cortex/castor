@@ -496,6 +496,132 @@ class TestSkillsLoaderPackage(unittest.TestCase):
         self.assertEqual(scheme, "skm")
         self.assertEqual(target, "example.com/testing/test-skill")
 
+    def test_parse_scenario(self) -> None:
+        from loader.loader import parse_scenario
+
+        content = """---
+name: build-test
+description: Verifies build command
+prompt: "How do I build the target?"
+executes: true
+expected_skills:
+  - bazel
+threshold: 0.75
+---
+Run bazel build //target hermetically.
+"""
+        sc = parse_scenario(content, default_name="fallback")
+        self.assertIsNotNone(sc)
+        assert sc is not None
+        self.assertEqual(sc.name, "build-test")
+        self.assertEqual(sc.description, "Verifies build command")
+        self.assertEqual(sc.prompt, "How do I build the target?")
+        self.assertTrue(sc.executes)
+        self.assertEqual(sc.expected_skills, ["bazel"])
+        self.assertEqual(sc.threshold, 0.75)
+        self.assertEqual(sc.outcome, "Run bazel build //target hermetically.")
+
+        # Test alias skills_applied
+        alias_content = """---
+prompt: "Run tests"
+executes: true
+skills_applied:
+  - python
+threshold: 0.80
+---
+Expected tests to pass.
+"""
+        sc_alias = parse_scenario(alias_content, default_name="alias-sc")
+        self.assertIsNotNone(sc_alias)
+        assert sc_alias is not None
+        self.assertEqual(sc_alias.name, "alias-sc")
+        self.assertEqual(sc_alias.expected_skills, ["python"])
+
+    def test_compute_text_similarity(self) -> None:
+        from loader.loader import compute_text_similarity
+
+        # Exact match
+        self.assertAlmostEqual(compute_text_similarity("bazel build hermetic", "bazel build hermetic"), 1.0, places=3)
+        # Partial match
+        sim = compute_text_similarity("bazel build hermetic", "bazel build")
+        self.assertTrue(0.5 < sim < 1.0)
+        # Disjoint match
+        self.assertEqual(compute_text_similarity("apple orange", "car truck"), 0.0)
+
+    def test_evaluate_scenario(self) -> None:
+        from loader.loader import ScenarioDefinition, evaluate_scenario
+
+        sc = ScenarioDefinition(
+            name="test-sc",
+            prompt="Build module",
+            executes=True,
+            expected_skills=["bazel"],
+            threshold=0.70,
+            outcome="Run bazel build to compile target hermetically.",
+        )
+
+        # 1. Pass: tools applied and similarity exceeds threshold
+        res_pass = evaluate_scenario(sc, "Run bazel build to compile target hermetically.", ["bazel"])
+        self.assertTrue(res_pass.passed)
+        self.assertGreaterEqual(res_pass.similarity_score, 0.70)
+        self.assertEqual(len(res_pass.errors), 0)
+
+        # 2. Fail: missing expected tool
+        res_fail_tool = evaluate_scenario(sc, "Run bazel build to compile target hermetically.", ["python"])
+        self.assertFalse(res_fail_tool.passed)
+        self.assertTrue(any("missing expected tool" in err for err in res_fail_tool.errors))
+
+        # 3. Fail: low similarity
+        res_fail_sim = evaluate_scenario(sc, "Completely different text with no overlap.", ["bazel"])
+        self.assertFalse(res_fail_sim.passed)
+        self.assertTrue(any("similarity score" in err for err in res_fail_sim.errors))
+
+    def test_load_skill_with_scenarios_and_runner(self) -> None:
+        from loader.loader import load_skill_from_dir, run_skill_scenarios
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            s_dir = Path(tmp_dir) / "scenario-skill"
+            (s_dir / "references").mkdir(parents=True)
+            (s_dir / "examples").mkdir(parents=True)
+            (s_dir / "scenarios").mkdir(parents=True)
+
+            (s_dir / "SKILL.md").write_text(
+                "---\nname: scenario-skill\ndescription: Skill with scenarios\nlicense: Apache-2.0\nauthor: Tester\nversion: 1.0.0\n---\nSecurity Checkpoint CWE-20. 429 Retry. [Doc](file:///doc.md)",
+                encoding="utf-8",
+            )
+            (s_dir / "references" / "ref.md").write_text("Reference", encoding="utf-8")
+            (s_dir / "examples" / "ex.md").write_text("Example", encoding="utf-8")
+
+            scenario_md = """---
+name: build-module
+prompt: "Build with Bazel"
+executes: true
+expected_skills:
+  - bazel
+threshold: 0.70
+---
+Execute bazel build //target hermetically.
+"""
+            (s_dir / "scenarios" / "build.md").write_text(scenario_md, encoding="utf-8")
+
+            skill = load_skill_from_dir(s_dir)
+            self.assertIsNotNone(skill)
+            assert skill is not None
+            self.assertIn("build", skill.scenarios)
+            sc = skill.get_scenario("build")
+            self.assertIsNotNone(sc)
+            assert sc is not None
+            self.assertEqual(sc.expected_skills, ["bazel"])
+
+            # Test run_skill_scenarios
+            def mock_agent_runner(prompt: str):
+                return "Execute bazel build //target hermetically.", ["bazel"]
+
+            results = run_skill_scenarios(skill, mock_agent_runner)
+            self.assertEqual(len(results), 1)
+            self.assertTrue(results[0].passed)
+            self.assertGreaterEqual(results[0].similarity_score, 0.70)
+
 
 if __name__ == "__main__":
     unittest.main()

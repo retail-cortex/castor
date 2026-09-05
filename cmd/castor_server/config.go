@@ -31,6 +31,10 @@ type Config struct {
 	OTELServiceName     string `toml:"otel_service_name"`
 	GCPProjectID        string `toml:"gcp_project_id"`
 	EmbeddingProvider   string `toml:"embedding_provider"`
+	RequireOAuth        bool   `toml:"require_oauth"`
+	OAuthIssuerURL      string `toml:"oauth_issuer_url"`
+	OAuthAudience       string `toml:"oauth_audience"`
+	OAuthUserInfoURL    string `toml:"oauth_userinfo_url"`
 }
 
 func LoadConfig() *Config {
@@ -42,6 +46,10 @@ func LoadConfig() *Config {
 		OTELServiceName:     "castor-registry",
 		GCPProjectID:        "",
 		EmbeddingProvider:   "vertex-gemini",
+		RequireOAuth:        false,
+		OAuthIssuerURL:      "",
+		OAuthAudience:       "",
+		OAuthUserInfoURL:    "",
 	}
 
 	// If MODENV_PREFIX is unset, auto-resolve from workspace directory or local directory
@@ -98,6 +106,18 @@ func LoadConfig() *Config {
 	}
 	if embProv := os.Getenv("EMBEDDING_PROVIDER"); embProv != "" {
 		cfg.EmbeddingProvider = embProv
+	}
+	if reqOAuth := os.Getenv("REQUIRE_OAUTH"); reqOAuth != "" {
+		cfg.RequireOAuth = reqOAuth == "true" || reqOAuth == "1"
+	}
+	if iss := os.Getenv("OAUTH_ISSUER_URL"); iss != "" {
+		cfg.OAuthIssuerURL = iss
+	}
+	if aud := os.Getenv("OAUTH_AUDIENCE"); aud != "" {
+		cfg.OAuthAudience = aud
+	}
+	if userInfo := os.Getenv("OAUTH_USERINFO_URL"); userInfo != "" {
+		cfg.OAuthUserInfoURL = userInfo
 	}
 
 	return cfg

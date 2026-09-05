@@ -22,20 +22,25 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/retail-cortex/castor/pkg/auth"
 	"github.com/retail-cortex/castor/pkg/data"
 	"github.com/retail-cortex/castor/pkg/model"
 	"github.com/retail-cortex/castor/pkg/service"
 )
 
 type ServerHandlers struct {
-	appsService   *service.AppsService
-	castorService *service.CastorService
+	appsService    *service.AppsService
+	castorService  *service.CastorService
+	tokenValidator auth.TokenValidator
+	cfg            *Config
 }
 
-func NewServerHandlers(appsSvc *service.AppsService, castorSvc *service.CastorService) *ServerHandlers {
+func NewServerHandlers(appsSvc *service.AppsService, castorSvc *service.CastorService, tokenValidator auth.TokenValidator, cfg *Config) *ServerHandlers {
 	return &ServerHandlers{
-		appsService:   appsSvc,
-		castorService: castorSvc,
+		appsService:    appsSvc,
+		castorService:  castorSvc,
+		tokenValidator: tokenValidator,
+		cfg:            cfg,
 	}
 }
 
@@ -59,6 +64,38 @@ func (h *ServerHandlers) RegisterApp(c *gin.Context) {
 		return
 	}
 
+	// Extract OAuth / Bearer token from Authorization header or request payload
+	rawToken := ""
+	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+	if authHeader != "" {
+		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			rawToken = strings.TrimSpace(authHeader[7:])
+		} else {
+			rawToken = authHeader
+		}
+	}
+	if rawToken == "" && req.OAuthToken != "" {
+		rawToken = strings.TrimSpace(req.OAuthToken)
+	}
+
+	var userProfile *model.UserProfile
+	if rawToken != "" {
+		if h.tokenValidator != nil {
+			profile, err := h.tokenValidator.ValidateToken(c.Request.Context(), rawToken)
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"detail": fmt.Sprintf("invalid oauth token: %v", err)})
+				return
+			}
+			userProfile = profile
+			if req.Email == "" && profile.Email != "" {
+				req.Email = profile.Email
+			}
+		}
+	} else if h.cfg != nil && h.cfg.RequireOAuth {
+		c.JSON(http.StatusUnauthorized, gin.H{"detail": "oauth authorization token is required for registration"})
+		return
+	}
+
 	scheme := "http"
 	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
 		scheme = "https"
@@ -66,7 +103,7 @@ func (h *ServerHandlers) RegisterApp(c *gin.Context) {
 	baseURL := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 
 	db := data.GetDB()
-	res, err := h.appsService.RegisterApp(db, req, baseURL)
+	res, err := h.appsService.RegisterApp(db, req, baseURL, userProfile)
 	if err != nil {
 		if errors.Is(err, data.ErrAppAlreadyRegistered) || errors.Is(err, data.ErrInvalidRegistrationEmail) {
 			c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})

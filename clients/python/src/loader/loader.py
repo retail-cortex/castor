@@ -27,7 +27,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from loader.compiler import SkillCompiler
 from loader.discovery import SkillDiscoveryEngine
@@ -36,6 +36,8 @@ from loader.types import (
     CompiledSkillReference,
     HITLGateResult,
     HITLPolicyTier,
+    ScenarioDefinition,
+    ScenarioEvaluationResult,
     SkillDefinition,
     SkillDirectorySearchResult,
     SkillSummary,
@@ -146,6 +148,157 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
             data[k] = v
 
     return data, body
+
+
+def compute_text_similarity(expected: str, actual: str) -> float:
+    """Computes cosine similarity over word token frequencies between expected and actual text."""
+    import math
+
+    exp_tokens = re.findall(r"[a-zA-Z0-9_]+", expected.lower())
+    act_tokens = re.findall(r"[a-zA-Z0-9_]+", actual.lower())
+
+    if not exp_tokens and not act_tokens:
+        return 1.0
+    if not exp_tokens or not act_tokens:
+        return 0.0
+
+    exp_freq: Dict[str, float] = {}
+    for tok in exp_tokens:
+        exp_freq[tok] = exp_freq.get(tok, 0.0) + 1.0
+
+    act_freq: Dict[str, float] = {}
+    for tok in act_tokens:
+        act_freq[tok] = act_freq.get(tok, 0.0) + 1.0
+
+    dot_product = sum(count * act_freq.get(tok, 0.0) for tok, count in exp_freq.items())
+    mag_exp = sum(c * c for c in exp_freq.values())
+    mag_act = sum(c * c for c in act_freq.values())
+
+    if mag_exp == 0.0 or mag_act == 0.0:
+        return 0.0
+
+    return dot_product / (math.sqrt(mag_exp) * math.sqrt(mag_act))
+
+
+def parse_scenario(content: str, default_name: str = "scenario") -> Optional[ScenarioDefinition]:
+    """Parses scenario markdown content with YAML frontmatter and reference outcome body."""
+    match = re.match(r"(?s)^---\s*\n(.*?)\n---\s*\n(.*)$", content)
+    if not match:
+        return None
+
+    yaml_text = match.group(1)
+    body = match.group(2).strip()
+
+    data: Dict[str, Any] = {}
+    try:
+        import yaml
+
+        raw_data = yaml.safe_load(yaml_text)
+        if isinstance(raw_data, dict):
+            data = raw_data
+    except Exception:
+        pass
+
+    if not data:
+        current_list_key = None
+        for line in yaml_text.splitlines():
+            trimmed = line.strip()
+            if not trimmed or trimmed.startswith("#"):
+                continue
+            if trimmed.startswith("- ") and current_list_key:
+                item_val = trimmed[2:].strip().strip("'\"")
+                if isinstance(data.get(current_list_key), list):
+                    data[current_list_key].append(item_val)
+                else:
+                    data[current_list_key] = [item_val]
+                continue
+            if ":" in trimmed:
+                key, val = trimmed.split(":", 1)
+                k = key.strip()
+                v = val.strip()
+                if v.startswith("[") and v.endswith("]"):
+                    items = [x.strip().strip("'\"") for x in v[1:-1].split(",") if x.strip()]
+                    data[k] = items
+                    current_list_key = None
+                elif not v:
+                    data[k] = []
+                    current_list_key = k
+                else:
+                    data[k] = v.strip("'\"")
+                    current_list_key = None
+
+    prompt = str(data.get("prompt", "")).strip()
+    if not prompt:
+        return None
+
+    name = str(data.get("name", "")).strip() or default_name
+    description = str(data.get("description", "")).strip() or None
+    raw_executes = data.get("executes", False)
+    executes = raw_executes in (True, "true", "True", "1", 1)
+    expected_skills = data.get("expected_skills", [])
+    if not expected_skills and "skills_applied" in data:
+        expected_skills = data.get("skills_applied", [])
+    if isinstance(expected_skills, str):
+        expected_skills = [expected_skills] if expected_skills.strip() else []
+    expected_skills = [str(x).strip() for x in expected_skills if str(x).strip()]
+
+    try:
+        threshold = float(data.get("threshold", 0.70))
+    except (ValueError, TypeError):
+        threshold = 0.70
+
+    return ScenarioDefinition(
+        name=name,
+        prompt=prompt,
+        executes=executes,
+        expected_skills=list(expected_skills),
+        threshold=threshold,
+        outcome=body,
+        description=description,
+    )
+
+
+def evaluate_scenario(
+    scenario: ScenarioDefinition,
+    agent_output: str,
+    tools_applied: Optional[List[str]] = None,
+) -> ScenarioEvaluationResult:
+    """Evaluates an agent's execution against a scenario definition."""
+    applied = [t.lower().strip() for t in (tools_applied or [])]
+    errors: List[str] = []
+
+    if scenario.executes:
+        applied_set = set(applied)
+        for exp in scenario.expected_skills:
+            if exp.lower().strip() not in applied_set:
+                errors.append(f"missing expected tool/skill execution: {exp}")
+
+    sim_score = compute_text_similarity(scenario.outcome, agent_output)
+    if sim_score < scenario.threshold:
+        errors.append(f"similarity score {sim_score:.2f} is below threshold {scenario.threshold:.2f}")
+
+    return ScenarioEvaluationResult(
+        scenario_name=scenario.name,
+        passed=(len(errors) == 0),
+        similarity_score=sim_score,
+        threshold=scenario.threshold,
+        tools_expected=scenario.expected_skills,
+        tools_applied=tools_applied or [],
+        errors=errors,
+    )
+
+
+def run_skill_scenarios(
+    skill: SkillDefinition,
+    agent_runner: Callable[[str], Tuple[str, List[str]]],
+) -> List[ScenarioEvaluationResult]:
+    """Runs all test scenarios for a skill against an agent runner callable."""
+    results: List[ScenarioEvaluationResult] = []
+    for sc in skill.scenarios.values():
+        agent_out, tools_applied = agent_runner(sc.prompt)
+        res = evaluate_scenario(sc, agent_out, tools_applied)
+        results.append(res)
+    return results
 
 
 def parse_dotenv_file(path: Union[Path, str]) -> Dict[str, str]:
@@ -367,6 +520,18 @@ def load_skill_from_dir(skill_dir: Path, source_uri: Optional[str] = None) -> Op
                     except Exception:
                         pass
 
+        scenarios: Dict[str, ScenarioDefinition] = {}
+        sc_dir = skill_dir / "scenarios"
+        if sc_dir.is_dir():
+            for sc_file in sorted(sc_dir.glob("*.md")):
+                try:
+                    sc_content = sc_file.read_text(encoding="utf-8")
+                    sc_def = parse_scenario(sc_content, default_name=sc_file.stem)
+                    if sc_def:
+                        scenarios[sc_file.stem] = sc_def
+                except Exception:
+                    pass
+
         payload = f"{name}:{version_val or ''}:{body.strip()}:{description}"
         sha256_val = hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -388,6 +553,7 @@ def load_skill_from_dir(skill_dir: Path, source_uri: Optional[str] = None) -> Op
             metadata=meta_dict,
             references=references,
             examples=examples,
+            scenarios=scenarios,
             path=rel_path,
             source_uri=source_uri_val,
             sha256_hash=sha256_val,
@@ -906,6 +1072,7 @@ def build_skills_manifest(
             "metadata": s.metadata,
             "references": s.references,
             "examples": s.examples,
+            "scenarios": {k: v.to_dict() for k, v in s.scenarios.items()},
             "scripts": s.scripts,
             "resources": s.resources,
             "path": rel_to_manifest,
@@ -926,6 +1093,19 @@ def load_skills_from_manifest(manifest_path: Path) -> Dict[str, SkillDefinition]
         content = json.loads(manifest_path.read_text(encoding="utf-8"))
         loaded: Dict[str, SkillDefinition] = {}
         for name, data in content.items():
+            scenarios_dict: Dict[str, ScenarioDefinition] = {}
+            for sc_name, sc_data in data.get("scenarios", {}).items():
+                if isinstance(sc_data, dict):
+                    scenarios_dict[sc_name] = ScenarioDefinition(
+                        name=sc_data.get("name", sc_name),
+                        prompt=sc_data.get("prompt", ""),
+                        executes=sc_data.get("executes", False),
+                        expected_skills=sc_data.get("expected_skills", []),
+                        threshold=float(sc_data.get("threshold", 0.70)),
+                        outcome=sc_data.get("outcome", ""),
+                        description=sc_data.get("description"),
+                    )
+
             loaded[name] = SkillDefinition(
                 name=data["name"],
                 description=data["description"],
@@ -944,6 +1124,7 @@ def load_skills_from_manifest(manifest_path: Path) -> Dict[str, SkillDefinition]
                 metadata=data.get("metadata", {}),
                 references=data.get("references", {}),
                 examples=data.get("examples", {}),
+                scenarios=scenarios_dict,
                 scripts=data.get("scripts") or [],
                 resources=data.get("resources") or [],
                 path=data.get("path", ""),
@@ -1077,6 +1258,7 @@ class SkillRegistry:
                     trigger_phrases=s.trigger_phrases,
                     sha256_hash=compiled_ref.sha256_hash,
                     hitl_tier=compiled_ref.hitl_tier,
+                    scenario_count=len(s.scenarios),
                 )
             )
         return summaries

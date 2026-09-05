@@ -63,6 +63,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return runVerify(subArgs, stdout, stderr)
 	case "validate":
 		return runValidate(subArgs, stdout, stderr)
+	case "test":
+		return runTest(subArgs, stdout, stderr)
 	case "list":
 		return runList(subArgs, stdout, stderr)
 	case "search":
@@ -191,6 +193,7 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	if len(positional) > 0 {
 		targetPath = positional[0]
 	}
+	targetPath = resolvePath(targetPath)
 
 	summary := validator.AuditAllSkills(targetPath, isRecursive)
 
@@ -223,6 +226,129 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if summary.FailedSkills > 0 || summary.TotalSkills == 0 {
+		return 1
+	}
+	return 0
+}
+
+func resolvePath(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if bwd := os.Getenv("BUILD_WORKING_DIRECTORY"); bwd != "" {
+		candidate := filepath.Join(bwd, p)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return p
+}
+
+// SkillTestSummary aggregates scenario test metrics for a skill.
+type SkillTestSummary struct {
+	SkillName       string                               `json:"skill_name"`
+	DirectoryPath   string                               `json:"directory_path"`
+	TotalScenarios  int                                  `json:"total_scenarios"`
+	PassedScenarios int                                  `json:"passed_scenarios"`
+	FailedScenarios int                                  `json:"failed_scenarios"`
+	Results         []validator.ScenarioEvaluationResult `json:"results"`
+}
+
+func runTest(args []string, stdout, stderr io.Writer) int {
+	var isRecursive = false
+	var jsonOutput = false
+	var targetPath = "."
+
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-r" || arg == "--recursive":
+			isRecursive = true
+		case arg == "--json":
+			jsonOutput = true
+		case strings.HasPrefix(arg, "-"):
+			fmt.Fprintf(stderr, "Unknown flag: %s\n", arg)
+			return 1
+		default:
+			positional = append(positional, arg)
+		}
+	}
+
+	if len(positional) > 0 {
+		targetPath = positional[0]
+	}
+	targetPath = resolvePath(targetPath)
+
+	auditSummary := validator.AuditAllSkills(targetPath, isRecursive)
+	var testSummaries []SkillTestSummary
+	totalAllScenarios := 0
+	failedAllScenarios := 0
+
+	for _, skillAudit := range auditSummary.Results {
+		scenarios, err := validator.LoadSkillScenarios(skillAudit.DirectoryPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "Error loading scenarios for %s: %v\n", skillAudit.SkillName, err)
+			return 1
+		}
+		if len(scenarios) == 0 {
+			continue
+		}
+
+		summary := SkillTestSummary{
+			SkillName:     skillAudit.SkillName,
+			DirectoryPath: skillAudit.DirectoryPath,
+			Results:       []validator.ScenarioEvaluationResult{},
+		}
+
+		for _, sc := range scenarios {
+			totalAllScenarios++
+			evalRes := validator.EvaluateScenario(sc, sc.Outcome, sc.ExpectedSkills)
+			summary.Results = append(summary.Results, evalRes)
+			summary.TotalScenarios++
+			if evalRes.Passed {
+				summary.PassedScenarios++
+			} else {
+				summary.FailedScenarios++
+				failedAllScenarios++
+			}
+		}
+		testSummaries = append(testSummaries, summary)
+	}
+
+	if jsonOutput {
+		bytes, err := json.MarshalIndent(testSummaries, "", "  ")
+		if err != nil {
+			fmt.Fprintf(stderr, "Failed to serialize test summary: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(bytes))
+	} else {
+		fmt.Fprintf(stdout, "\nCastor Skill Scenario Test Report\n")
+		fmt.Fprintf(stdout, "%s\n", strings.Repeat("=", 70))
+		fmt.Fprintf(stdout, "Target Path: %s (Recursive: %v)\n", targetPath, isRecursive)
+		fmt.Fprintf(stdout, "Skills Tested: %d | Total Scenarios: %d | Failed Scenarios: %d\n\n", len(testSummaries), totalAllScenarios, failedAllScenarios)
+
+		for _, s := range testSummaries {
+			fmt.Fprintf(stdout, "Skill: %s (%s)\n", s.SkillName, s.DirectoryPath)
+			for _, res := range s.Results {
+				statusStr := "[PASS]"
+				if !res.Passed {
+					statusStr = "[FAIL]"
+				}
+				fmt.Fprintf(stdout, "  %s %-30s | Similarity: %.2f (Threshold: %.2f) | Tools: %v\n",
+					statusStr, res.ScenarioName, res.SimilarityScore, res.Threshold, res.ToolsExpected)
+				if !res.Passed {
+					for _, errStr := range res.Errors {
+						fmt.Fprintf(stdout, "       - %s\n", errStr)
+					}
+				}
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+
+	if failedAllScenarios > 0 {
 		return 1
 	}
 	return 0
@@ -800,7 +926,7 @@ func runCompletion(args []string, stdout, stderr io.Writer) int {
 _cstr_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local prev="${COMP_WORDS[COMP_CWORD-1]}"
-    local commands="add verify validate list search compile init completion version help"
+    local commands="add verify validate test list search compile init completion version help"
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
     fi
@@ -814,6 +940,7 @@ _cstr() {
         'add:Add skills from URI'
         'verify:Verify installed skills against .manifest.lock'
         'validate:Validate skills against 5-point audit'
+        'test:Test skill scenarios against behavioral thresholds'
         'list:List registered skills'
         'search:Search skills by keyword'
         'compile:Compile zero-I/O skills manifest'
@@ -827,7 +954,7 @@ _cstr() {
 _cstr "$@"`)
 	case "fish":
 		fmt.Fprintln(stdout, `# cstr fish completion
-complete -c cstr -n "__fish_use_subcommand" -a "add verify validate list search compile init completion version help"`)
+complete -c cstr -n "__fish_use_subcommand" -a "add verify validate test list search compile init completion version help"`)
 	default:
 		fmt.Fprintf(stderr, "Unsupported shell '%s'. Supported: bash, zsh, fish\n", shell)
 		return 1
@@ -928,6 +1055,7 @@ Commands:
   add <uri>...            Add skills from cstr://, castor://, github://, mod://, maven://, pkg://, or file:// to .skills (or -d directory)
   verify [path]           Verify downloaded skills against recorded SHA-256 checksums in .manifest.lock
   validate <path>         Validate frontmatter, tree, CWE, 429 resilience, and file links in a skill directory
+  test <path>             Run automated scenario tests in scenarios/ directory against similarity thresholds
   list                    List skills in .skills, current directory, or specified registry
   search <query>          Search skills by query term in name, description, or instructions
   compile [path]          Compile all skills into pre-compiled skills_manifest.json for fast zero-I/O loading
@@ -944,9 +1072,9 @@ Options for 'verify':
   -d, --dir <path>        Target directory containing .manifest.lock (default: ".skills")
   --json                  Output verification report as structured JSON
 
-Options for 'validate':
-  -r, --recursive         Recursively validate all skills in target path
-  --json                  Output audit summary as structured JSON
+Options for 'validate' and 'test':
+  -r, --recursive         Recursively execute across all skills in target path
+  --json                  Output report as structured JSON
 
 Options for 'list' and 'search':
   -r, --remote            Query the central Castor Registry (configured via cstr login / config)
@@ -982,7 +1110,6 @@ Examples:
 `)
 }
 
-
 func isDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
@@ -992,4 +1119,3 @@ func isFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
 }
-

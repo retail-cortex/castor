@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+go_library(
+    name = "auth",
+    srcs = ["oauth.go"],
+    importpath = "github.com/retail-cortex/castor/pkg/auth",
+    deps = [
+        "//pkg/model",
+    ],
+)
+
+go_test(
+    name = "auth_test",
+    size = "small",
+    srcs = ["oauth_test.go"],
+    deps = [
+        ":auth",
+        "//pkg/model",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

@@ -161,6 +161,20 @@ message SkillDefinition {
   string skill_id = 22;                       // Generated unique skill identifier (e.g. sk-9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d0123)
   string uri = 23;                            // Canonical registered URI (e.g. skm://skills/sk-9b1deb4d)
   string source_uri = 24;                     // Original registration source (e.g. github://google/skills@main/tree/main/skills/cloud/gemini-api)
+
+  // Behavioral Test Scenarios
+  repeated ScenarioDefinition scenarios = 25 [json_name = "scenarios"];
+}
+
+// ScenarioDefinition defines an automated behavioral test scenario for a skill.
+message ScenarioDefinition {
+  string name = 1 [json_name = "name"];
+  string description = 2 [json_name = "description"];
+  string prompt = 3 [json_name = "prompt"];
+  bool executes = 4 [json_name = "executes"];
+  repeated string expected_skills = 5 [json_name = "expected_skills"];
+  double threshold = 6 [json_name = "threshold"];
+  string outcome = 7 [json_name = "outcome"];
 }
 
 // SkillSummary provides a lightweight summary of a skill definition for listing and discovery.
@@ -180,4 +194,5 @@ message SkillSummary {
   string skill_id = 13;
   string uri = 14;
   string source_uri = 15;
+  int32 scenario_count = 16 [json_name = "scenario_count"];
 }

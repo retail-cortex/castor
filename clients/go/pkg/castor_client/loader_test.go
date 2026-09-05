@@ -39,7 +39,7 @@ func TestParseFrontmatter(t *testing.T) {
 		expectedBody string
 	}{
 		{
-			name: "valid frontmatter",
+			name:    "valid frontmatter",
 			content: "---\nname: test-skill\ndescription: A test description\n---\n# Instructions\nFollow these rules.",
 			expectedFm: map[string]string{
 				"name":        "test-skill",
@@ -129,7 +129,6 @@ func TestParseSkillRootURI(t *testing.T) {
 			reqTarget:  "github.com/retail-cortex/castor",
 			reqRef:     "v1.0.0",
 			reqSubpath: "examples/go/skills",
-
 		},
 		{
 			name:       "github URI with trailing ref",
@@ -646,7 +645,6 @@ func TestCoverageBoost(t *testing.T) {
 	resRoot := FindRegistryRoot()
 	assert.Equal(t, tmpDir, resRoot)
 
-
 	testSrc := t.TempDir()
 	t.Setenv("BUILD_WORKSPACE_DIRECTORY", "")
 	t.Setenv("TEST_SRCDIR", testSrc)
@@ -680,7 +678,6 @@ func TestCoverageBoost(t *testing.T) {
 	envPath := filepath.Join(tmpDir, ".env")
 	_, _ = LoadSkillsFromGitHub("https://github.com/mock-owner/mock-repo/tree/v1.0.0/skills", "v1.0.0", nil, nil, "token123", envPath)
 	_, _ = LoadSkillsFromGitHub("mock-owner/mock-repo.git", "", []string{"skills"}, []string{"skill1"}, "", "")
-
 
 	// 10. BuildSkillsManifest error
 	_, err = BuildSkillsManifest(tmpDir, "/invalid_dir_12345/manifest.json")
@@ -733,4 +730,61 @@ func TestSkillRegistry_SuggestSkills(t *testing.T) {
 	// Empty prompt returns top-k
 	emptySuggested := registry.SuggestSkills("", 2, "")
 	assert.True(t, len(emptySuggested) > 0 && len(emptySuggested) <= 2)
+}
+
+func TestScenarioParsingAndEvaluation(t *testing.T) {
+	content := `---
+name: build-module
+prompt: "How to build target"
+executes: true
+expected_skills:
+  - bazel
+threshold: 0.70
+---
+Run bazel build //target hermetically.
+`
+	sc, err := ParseScenarioContent(content, "default-sc")
+	assert.NoError(t, err)
+	assert.Equal(t, "build-module", sc.Name)
+	assert.Equal(t, "How to build target", sc.Prompt)
+	assert.True(t, sc.Executes)
+	assert.Equal(t, []string{"bazel"}, sc.ExpectedSkills)
+	assert.Equal(t, 0.70, sc.Threshold)
+	assert.Equal(t, "Run bazel build //target hermetically.", sc.Outcome)
+
+	// Similarity test
+	sim1 := ComputeTextSimilarity("Run bazel build //target hermetically.", "Run bazel build //target hermetically.")
+	assert.InDelta(t, 1.0, sim1, 0.001)
+
+	sim2 := ComputeTextSimilarity("Run bazel build //target hermetically.", "Different text entirely")
+	assert.Less(t, sim2, 0.5)
+
+	// Evaluation pass
+	passRes := EvaluateScenario(*sc, "Run bazel build //target hermetically.", []string{"bazel"})
+	assert.True(t, passRes.Passed)
+	assert.GreaterOrEqual(t, passRes.SimilarityScore, 0.70)
+
+	// Evaluation fail: missing tool
+	failToolRes := EvaluateScenario(*sc, "Run bazel build //target hermetically.", []string{"go"})
+	assert.False(t, failToolRes.Passed)
+	assert.Contains(t, failToolRes.Errors[0], "missing expected tool/skill execution: bazel")
+
+	// Evaluation fail: low similarity
+	failSimRes := EvaluateScenario(*sc, "Something else completely.", []string{"bazel"})
+	assert.False(t, failSimRes.Passed)
+
+	// Test loading from directory with scenarios
+	tmpDir := t.TempDir()
+	skillDir := filepath.Join(tmpDir, "skill-with-scenarios")
+	_ = os.MkdirAll(filepath.Join(skillDir, "scenarios"), 0755)
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: skill-with-scenarios\n---\nBody"), 0644)
+	_ = os.WriteFile(filepath.Join(skillDir, "scenarios", "test.md"), []byte(content), 0644)
+
+	loaded, err := LoadSkillFromDir(skillDir)
+	assert.NoError(t, err)
+	assert.NotNil(t, loaded)
+	assert.Contains(t, loaded.Scenarios, "test")
+	scLoaded, ok := loaded.GetScenario("test")
+	assert.True(t, ok)
+	assert.Equal(t, "build-module", scLoaded.Name)
 }

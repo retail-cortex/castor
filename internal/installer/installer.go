@@ -118,7 +118,6 @@ func AddSkills(uris []string, destDir string, filter []string, force bool) ([]Ad
 			skills, loadErr = ResolveFileSkills(uri, filter)
 		}
 
-
 		if loadErr != nil {
 			results = append(results, AddResult{
 				SkillName:   uri,
