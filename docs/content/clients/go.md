@@ -112,7 +112,7 @@ func TestSkillsIntegrity(t *testing.T) {
 
 ## 4. JIT Dynamic Pre-Call Retrieval (`SuggestSkills`)
 
-The Go client provides dynamic semantic tool retrieval for autonomous agents to limit active tools to the top $\le 3$ ranked skills:
+The Go client provides dynamic semantic tool retrieval for autonomous agents to limit active tools to the top ≤ 3 ranked skills:
 
 ```go
 package main

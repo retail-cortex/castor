@@ -54,7 +54,7 @@ dependencies = [
 
 ## 2. JIT Dynamic Pre-Call Retrieval (`suggest_skills`)
 
-In autonomous ADK agent workflows, loading all tools statically can cause context window bloat and tool hallucinations. `SkillRegistry.suggest_skills()` performs JIT semantic retrieval to rank and bound relevant skills to at most $k \le 3$:
+In autonomous ADK agent workflows, loading all tools statically can cause context window bloat and tool hallucinations. `SkillRegistry.suggest_skills()` performs JIT semantic retrieval to rank and bound relevant skills to at most k ≤ 3:
 
 ```python
 from castor_client import SkillRegistry

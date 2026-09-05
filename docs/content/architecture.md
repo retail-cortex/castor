@@ -133,7 +133,7 @@ Configured dynamically in `cmd/castor_server/.env.toml` via `embedding_provider`
 
 During skill registration, embedding generation is offloaded to non-blocking background workers ([`CastorService.startBackgroundWorkers`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/service/castor_service.go#L106-L129)):
 
-1. **Sliding-Window Chunking**: Long instructions and references are partitioned into $\le 900$-character chunks with an 80-character sliding step overlap ([`embedding.SplitTextIntoChunks`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/provider.go#L70)).
+1. **Sliding-Window Chunking**: Long instructions and references are partitioned into ≤ 900-character chunks with an 80-character sliding step overlap ([`embedding.SplitTextIntoChunks`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/provider.go#L70)).
 2. **Multi-Asset Embedding**: Generates distinct chunk embeddings across skill metadata, system instructions, trigger phrases, Markdown references, and code examples.
 3. **Poly-Column Persistence**: Chunks are stored in the `skill_embeddings` table and indexed using pgvector HNSW cosine graphs.
 

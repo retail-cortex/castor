@@ -163,8 +163,8 @@ Central registries MUST compute, index, and maintain multi-modal semantic embedd
 All REST list and search endpoints (`/api/v1/skills`) MUST enforce strict request bounding:
 
 1. **Parameter Constraints**:
-   - `page`: Integer $\ge 1$ (default: `1`).
-   - `page_size` / `max`: Integer $1 \le \text{page\_size} \le 25$ (default: `5`).
+   - `page`: Integer ≥ 1 (default: `1`).
+   - `page_size` / `max`: Integer 1 ≤ `page_size` ≤ 25 (default: `5`).
 2. **Mandatory Response Headers**:
    - `X-Total-Count`: Total matched entities across the entire dataset.
    - `X-Page`: Current page index.
@@ -204,7 +204,7 @@ To build a Bazel module hermetically using Bzlmod:
 | `prompt` | `string` | **Yes** | The input prompt provided to the agent under test. |
 | `executes` | `boolean` | No | If `true`, asserts that all `expected_skills` are invoked during execution. (Default: `false`). |
 | `expected_skills` | `list[string]` | No | List of tool / skill names expected to be invoked. (Alias: `skills_applied`). |
-| `threshold` | `float` | No | Minimum cosine similarity threshold ($0.0 \le \text{threshold} \le 1.0$). (Default: `0.70`). |
+| `threshold` | `float` | No | Minimum cosine similarity threshold (0.0 ≤ threshold ≤ 1.0). (Default: `0.70`). |
 | `metadata` | `map[string, string]` | No | Arbitrary key-value metadata for tagging, difficulty, or categorization. |
 
 ### 9.2 Verification & Scoring Mechanics

@@ -183,7 +183,7 @@ class SkillLoaderTest {
 
 ## 5. JIT Dynamic Pre-Call Retrieval (`suggestSkills`)
 
-The Java client provides dynamic pre-call tool suggestions for autonomous agents, bounding candidates to the top $\le 3$ skills:
+The Java client provides dynamic pre-call tool suggestions for autonomous agents, bounding candidates to the top ≤ 3 skills:
 
 ```java
 package com.company.agent;

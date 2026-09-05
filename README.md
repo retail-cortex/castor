@@ -19,8 +19,8 @@
 
 * **Multi-Modal Vector Search & Poly-Column Schema**: Dual-tier search powered by PostgreSQL/AlloyDB `pgvector` with dedicated HNSW indexes (`embedding_768`, `embedding_1408`, `embedding_3072`). Indexes textual instructions, Markdown references, and binary media (PNG, JPEG, WebP, PDF, WASM, Protobuf).
 * **Pluggable Soft-Switch Embedding Providers**: Switch dynamically via `.env.toml` (`embedding_provider`) between Vertex AI (`multimodalembedding`, 1408d / `text-embedding-004`, 768d) and in-database AlloyDB AI (`alloydb-ai`, 768d).
-* **JIT Dynamic Pre-Call Retrieval**: Client SDKs and ADK agents query the semantic index on incoming prompts, constraining injected tools to the top $\le 3$ ranked skills to eliminate tool bleed and conserve context window tokens.
-* **Bounded REST Pagination & Protection**: Central `/api/v1/skills` endpoint enforces strict page size bounding ($1 \le \text{page\_size} \le 25$, default $5$) with standard `X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Total-Pages` response headers.
+* **JIT Dynamic Pre-Call Retrieval**: Client SDKs and ADK agents query the semantic index on incoming prompts, constraining injected tools to the top ≤ 3 ranked skills to eliminate tool bleed and conserve context window tokens.
+* **Bounded REST Pagination & Protection**: Central `/api/v1/skills` endpoint enforces strict page size bounding (1 ≤ `page_size` ≤ 25, default 5) with standard `X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Total-Pages` response headers.
 * **Cryptographic Manifest Locking (`.manifest.lock`)**: Enforces deterministic SHA-256 integrity verification across installed skills.
 * **Human-in-the-Loop (HITL) Policy Gates**: Tiered intervention gates and static compliance validation ensuring safe Agent-Human Interaction (AHI).
 * **Repeatable Skill Scenario Verification Framework**: Declarative test fixtures in `scenarios/*.md` evaluating agent prompt responses against reference outcomes via token-frequency cosine similarity thresholds and tool invocation assertions (`expected_skills`).
@@ -113,7 +113,7 @@ bazel test //...
 
 | Command | Syntax | Description |
 | :--- | :--- | :--- |
-| **`search`** | `cstr search <query> [-r] [-p <page>] [-n <max>] [--json]` | Searches skills locally or against remote `Castor Registry` vector index ($1 \le \text{max} \le 25$). |
+| **`search`** | `cstr search <query> [-r] [-p <page>] [-n <max>] [--json]` | Searches skills locally or against remote `Castor Registry` vector index (1 ≤ max ≤ 25). |
 | **`list`** | `cstr list [-r] [-p <page>] [-n <max>] [--json]` | Lists skills from local filesystem or central server with pagination metadata. |
 | **`add`** | `cstr add <uri> [-d <dir>] [--force] [--manifest-only]` | Resolves and installs skills from `castor://`, `cstr://`, `github://`, `mod://`, `maven://`, `pkg://`, or `file://` URIs. |
 | **`register`**| `cstr register <source_uri>` | Registers source skill with central `Castor Registry`, computing multi-modal vector embeddings. |
