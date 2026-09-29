@@ -26,6 +26,11 @@ alias(
 )
 
 alias(
+    name = "pnpm",
+    actual = "@pnpm//:pnpm",
+)
+
+alias(
     name = "start-agent",
     actual = "//tests/adk-agent:start_agent",
 )
@@ -138,6 +143,16 @@ alias(
 alias(
     name = "diagrams",
     actual = "//tools/proto_diagrams",
+)
+
+alias(
+    name = "user-app",
+    actual = "//web/user-app:build",
+)
+
+alias(
+    name = "user-app-dev",
+    actual = "//web/user-app:dev",
 )
 
 test_suite(

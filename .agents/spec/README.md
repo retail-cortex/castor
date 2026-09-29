@@ -16,6 +16,7 @@ Welcome to the **Castor System Specifications**. This directory contains the aut
 | **[06. Persistence & Data Models](06_persistence_data_models.md)** | Schemas, ERD & Storage Engine | PostgreSQL / AlloyDB `pgvector` poly-column schema, HNSW indexes, GORM entities, SQLite fallback, and `.manifest.lock`. |
 | **[07. Acceptance Criteria & Tests](07_acceptance_criteria.md)** | BDD Criteria & Traceability Matrix | Given/When/Then acceptance criteria mapped to automated Bazel test targets. |
 | **[08. Scenario Verification](08_scenario_verification.md)** | Repeatable Behavioral Testing | Frontmatter schema (`prompt`, `executes`, `expected_skills`, `threshold`), tool validation, and outcome similarity. |
+| **[09. User Interface & Skill Authoring Studio](09_user_interface.md)** | UI, Workspace Admin & AI Agent Studio | Web/Desktop control plane, user & group management, semantic search, 5-point SDLC linter, and AI-assisted skill authoring via MCP. |
 
 ---
 

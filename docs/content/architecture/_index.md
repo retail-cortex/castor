@@ -73,7 +73,7 @@ WITH (m = 16, ef_construction = 64);
 
 ## 3. Pluggable Soft-Switch Embedding Providers
 
-The embedding layer standardizes on a decoupled Go provider interface ([`pkg/embedding.Provider`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/provider.go#L26-L50)):
+The embedding layer standardizes on a decoupled Go provider interface ([`pkg/embedding.Provider`](https://github.com/retail-cortex/castor/blob/main/pkg/embedding/provider.go#L26-L50)):
 
 ```go
 type Provider interface {
@@ -107,7 +107,7 @@ type Provider interface {
 
 Configured dynamically in `cmd/castor_server/.env.toml` via `embedding_provider` or environment variable `EMBEDDING_PROVIDER`:
 
-#### 1. Google Vertex AI & Gemini Provider ([`pkg/embedding/vertex`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/vertex/vertex.go))
+#### 1. Google Vertex AI & Gemini Provider ([`pkg/embedding/vertex`](https://github.com/retail-cortex/castor/blob/main/pkg/embedding/vertex/vertex.go))
 - **Provider Identifier**: `"vertex-gemini"` (default)
 - **Supported Models**: `multimodalembedding` (1408 dimensions, default) and `text-embedding-004` (768 dimensions).
 - **Authentication**: Supports Google Cloud Application Default Credentials (ADC) OAuth2 access token caching (`gcloud auth print-access-token` / GCP metadata server) or Gemini Developer API keys (`GEMINI_API_KEY`).
@@ -116,9 +116,9 @@ Configured dynamically in `cmd/castor_server/.env.toml` via `embedding_provider`
   - `GCP_REGION`: Target GCP Region (defaults to `us-central1`).
   - `GEMINI_API_KEY`: API key for Gemini Developer API endpoints.
   - `VERTEX_AI_BASE_URL`: Custom proxy or emulator endpoint.
-- **Offline Fallback**: Implements deterministic, normalized vector generation ([`embedding.GenerateDeterministicVector`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/provider.go#L128)) when credentials are not configured, enabling zero-network local development.
+- **Offline Fallback**: Implements deterministic, normalized vector generation ([`embedding.GenerateDeterministicVector`](https://github.com/retail-cortex/castor/blob/main/pkg/embedding/provider.go#L128)) when credentials are not configured, enabling zero-network local development.
 
-#### 2. AlloyDB AI In-Database Provider ([`pkg/embedding/alloydb`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/alloydb/alloydb.go))
+#### 2. AlloyDB AI In-Database Provider ([`pkg/embedding/alloydb`](https://github.com/retail-cortex/castor/blob/main/pkg/embedding/alloydb/alloydb.go))
 - **Provider Identifier**: `"alloydb-ai"` or `"alloydb"`
 - **Supported Models**: `text-embedding-004` (768 dimensions, default).
 - **Execution Mechanism**: Invokes native in-database PostgreSQL functions directly over the active database connection:
@@ -131,13 +131,13 @@ Configured dynamically in `cmd/castor_server/.env.toml` via `embedding_provider`
 
 ### Asynchronous Ingestion & Multi-Chunk Decomposition
 
-During skill registration, embedding generation is offloaded to non-blocking background workers ([`CastorService.startBackgroundWorkers`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/service/castor_service.go#L106-L129)):
+During skill registration, embedding generation is offloaded to non-blocking background workers ([`CastorService.startBackgroundWorkers`](https://github.com/retail-cortex/castor/blob/main/pkg/service/castor_service.go#L106-L129)):
 
-1. **Sliding-Window Chunking**: Long instructions and references are partitioned into ≤ 900-character chunks with an 80-character sliding step overlap ([`embedding.SplitTextIntoChunks`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/provider.go#L70)).
+1. **Sliding-Window Chunking**: Long instructions and references are partitioned into ≤ 900-character chunks with an 80-character sliding step overlap ([`embedding.SplitTextIntoChunks`](https://github.com/retail-cortex/castor/blob/main/pkg/embedding/provider.go#L70)).
 2. **Multi-Asset Embedding**: Generates distinct chunk embeddings across skill metadata, system instructions, trigger phrases, Markdown references, and code examples.
 3. **Poly-Column Persistence**: Chunks are stored in the `skill_embeddings` table and indexed using pgvector HNSW cosine graphs.
 
-### Evaluation & Benchmark Test Harness ([`pkg/embedding/harness_test.go`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/embedding/harness_test.go))
+### Evaluation & Benchmark Test Harness ([`pkg/embedding/harness_test.go`](https://github.com/retail-cortex/castor/blob/main/pkg/embedding/harness_test.go))
 
 The embedding evaluation test harness benchmarks candidate embedding providers against ground-truth skill corpora to verify:
 - **Mean Reciprocal Rank (MRR)**: Average reciprocal rank of expected skill matches across natural language queries.
@@ -211,7 +211,7 @@ Every language standardizes on **Bazel** for hermetic CI/CD and monorepo executi
 
 ## 9. Role-Based Access Control (RBAC) & Collaborator Model
 
-The enterprise registry enforces multi-tenant Role-Based Access Control at the application level via [`pkg/model/app.go`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/model/app.go) and [`pkg/data/apps_repository.go`](file:///Users/rmcguinness/Projects/retail-cortex/castor/pkg/data/apps_repository.go).
+The enterprise registry enforces multi-tenant Role-Based Access Control at the application level via [`pkg/model/app.go`](https://github.com/retail-cortex/castor/blob/main/pkg/model/app.go) and [`pkg/data/apps_repository.go`](https://github.com/retail-cortex/castor/blob/main/pkg/data/apps_repository.go).
 
 ### Permission Hierarchy
 
@@ -237,8 +237,8 @@ The enterprise registry enforces multi-tenant Role-Based Access Control at the a
 ## 10. Protocol Buffer Architecture Contracts (`proto/`)
 
 The core domain model (`SkillDefinition`, `SkillSummary`, `RegisterSkillRequest`, `RegisterAppRequest`, `AppMember`, `AppApiKeySummary`) is formally defined in Protocol Buffers:
-- [`proto/castor/skills/v1/skill.proto`](file:///Users/rmcguinness/Projects/retail-cortex/castor/proto/castor/skills/v1/skill.proto): Core domain skill definitions.
-- [`proto/castor/skills/v1/skill_service.proto`](file:///Users/rmcguinness/Projects/retail-cortex/castor/proto/castor/skills/v1/skill_service.proto): gRPC and REST skill endpoints.
-- [`proto/castor/skills/v1/manifest.proto`](file:///Users/rmcguinness/Projects/retail-cortex/castor/proto/castor/skills/v1/manifest.proto): Manifest locking schema.
-- [`proto/castor/registration/v1/registration_service.proto`](file:///Users/rmcguinness/Projects/retail-cortex/castor/proto/castor/registration/v1/registration_service.proto): Application registration and RBAC collaborator endpoints.
+- [`proto/castor/skills/v1/skill.proto`](https://github.com/retail-cortex/castor/blob/main/proto/castor/skills/v1/skill.proto): Core domain skill definitions.
+- [`proto/castor/skills/v1/skill_service.proto`](https://github.com/retail-cortex/castor/blob/main/proto/castor/skills/v1/skill_service.proto): gRPC and REST skill endpoints.
+- [`proto/castor/skills/v1/manifest.proto`](https://github.com/retail-cortex/castor/blob/main/proto/castor/skills/v1/manifest.proto): Manifest locking schema.
+- [`proto/castor/registration/v1/registration_service.proto`](https://github.com/retail-cortex/castor/blob/main/proto/castor/registration/v1/registration_service.proto): Application registration and RBAC collaborator endpoints.
 

@@ -1,0 +1,6 @@
+# User App Frontend Gitignore
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store

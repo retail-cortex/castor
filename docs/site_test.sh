@@ -9,7 +9,15 @@ if [ -z "${SITE_DIR}" ]; then
   exit 1
 fi
 
-if grep -q 'href="/"' "${SITE_DIR}"; then
+# Verify stylesheet references are populated and do not point to empty "/"
+if grep -q 'main.*\.min\.css' "${SITE_DIR}"; then
+  echo "Theme stylesheet found."
+else
+  echo "Error: Main stylesheet missing from ${SITE_DIR}"
+  exit 1
+fi
+
+if grep -A 2 'rel="stylesheet"' "${SITE_DIR}" | grep -q 'href="/"'; then
   echo "Error: index.html has empty stylesheet references (href=\"/\"). Theme assets missing!"
   exit 1
 fi

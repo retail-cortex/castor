@@ -1,6 +1,7 @@
 .venv
 scratch
 node_modules
+web/user-app/node_modules
 dist
 build
 .loader_skills

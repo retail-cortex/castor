@@ -31,7 +31,17 @@ Run the custom polyglot developer CLI agent using domain skills (`skills-bazel`,
 uv run python examples/python/polyglot/main.py --target-dir ./scratch/my-polyglot-app
 ```
 
-### 3. Run All Workspace Test Suites
+### 3. Launch Web UI Control Plane & Skill Studio
+
+Launch the native React 19 + Vite development server with Material Design 3 and Deep Cyan Synthetics:
+
+```bash
+bazel run //:user-app-dev
+```
+
+Open `http://localhost:5173` to explore the semantic skill catalog, OAuth 2.0 PKCE authentication, manual 5-point SDLC authoring studio, and AI Architect MCP copilot.
+
+### 4. Run All Workspace Test Suites
 
 - **Hermetic Bazel Execution (Primary Standard)**:
   ```bash
@@ -48,6 +58,8 @@ uv run python examples/python/polyglot/main.py --target-dir ./scratch/my-polyglo
   bazel test //clients/java/...
   # Backend service & embedding provider tests
   bazel test //pkg/... //cmd/...
+  # Web UI build
+  bazel build //:user-app
   ```
 
 ---
@@ -59,6 +71,7 @@ This documentation site is organized into logical sections:
 - [Project Overview](./): Introduction, quickstart commands, repository layout, and licensing.
 - [Specification](specification/): Enterprise AI Agent Skills Specification (v1.0.0), frontmatter schema, 5-point SDLC compliance, `.manifest.lock` cryptographic integrity, and polyglot URI resolution.
 - [Architecture](architecture/): Engineering standards, pluggable embedding providers, pgvector poly-column schemas, Google OAuth2 integration, and HTTP 429 rate limit resilience.
+- [User Interface & Studio](ui/): Web control plane, OAuth 2.0 PKCE gate, workspace admin, semantic discovery, 5-point SDLC manual studio, and AI Architect MCP copilot.
 - [Cloud Deployment](deployment/): Enterprise infrastructure automation via Terraform, GKE clusters (`dev`, `qa`, `prod`), AlloyDB AI, and Kustomize overlays.
 - [Critical Analysis](analysis/): Comparative analysis against agentskills.io specification and ecosystem showcase clients.
 - [Skills Registry](examples/skills/): Specialized domain and technology enterprise skills catalog.
@@ -102,6 +115,8 @@ castor/
 │   ├── java/                  # Standalone Java client & Java skill collection
 │   ├── python/                # Standalone Python client, Polyglot Agent & skills
 │   └── skills/                # Standalone multi-content test skills
+├── web/                       # Frontend Web Applications & Developer Portals
+│   └── user-app/              # React 19 + Vite + Tailwind M3 Web UI Control Plane
 ├── LICENSE                    # Apache 2.0 License
 ├── NOTICE                     # Legal attribution notices
 └── validator_report.json      # Persisted 5-point SDLC audit results
