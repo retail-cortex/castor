@@ -3,3 +3,9 @@
 # where LaunchServices hides apple-internal apps from LSCopyApplicationURLsForBundleIdentifier.
 build --action_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 build --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
+
+# Xcode 27's clang records <sdk>/SDKSettings.json as a dependency; rules_cc only
+# allows the CommandLineTools SDK root, so build against CLT instead of Xcode.
+build --repo_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools
+build --action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools
+build --host_action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools
