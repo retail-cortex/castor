@@ -12,15 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: all build test lint fmt clean server cli docs test-e2e
-
-GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
-BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "1.0.0")
-
-LDFLAGS := -X github.com/retail-cortex/castor/internal/commands.Version=$(VERSION) \
-           -X github.com/retail-cortex/castor/internal/commands.GitCommit=$(GIT_COMMIT) \
-           -X github.com/retail-cortex/castor/internal/commands.BuildDate=$(BUILD_DATE)
+.PHONY: all build test test-e2e lint fmt validate server cli docs clean
 
 all: build test
 
@@ -34,12 +26,13 @@ test-e2e:
 	bazel test //:test-e2e
 
 lint:
-	golangci-lint run ./cmd/... ./pkg/... ./internal/... ./clients/go/...
+	bazel run //:go -- vet ./cmd/... ./pkg/... ./internal/... ./clients/go/...
 
 fmt:
-	gofmt -w -s .
-	ruff format .
-	ruff check --fix .
+	bazel run //:go -- fmt ./cmd/... ./pkg/... ./internal/... ./clients/go/...
+
+validate:
+	bazel run //:validate
 
 server:
 	bazel run //cmd/castor_server
